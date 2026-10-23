@@ -1,0 +1,7 @@
+{
+  "model": "qwen2.5:1.5b",
+  "endpoint": "http://localhost:11434/v1/chat/completions",
+  "input": "um hello team please review the project notes and send me your feedback thanks",
+  "output": "Hello team, please review the project notes and send me your feedback, thanks.",
+  "passed": true
+}

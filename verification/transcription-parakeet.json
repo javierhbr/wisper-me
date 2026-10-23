@@ -1,0 +1,9 @@
+{
+  "engine": "Parakeet",
+  "model": "mlx-community/parakeet-tdt-0.6b-v3",
+  "expected": "Hello, this is a real local transcription test. Please send the meeting notes tomorrow morning.",
+  "actual": "Hello, this is a real local transcription test. Please send the meeting notes tomorrow morning.",
+  "word_error_rate": 0.0,
+  "elapsed_including_download_seconds": 8.6,
+  "passed": true
+}

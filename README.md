@@ -113,7 +113,7 @@ Direct insertion requires a verified, editable, unprotected Accessibility elemen
 
 **Import audio…** / Command–O transcribes a supported existing audio file without deleting the original. Microphone capture stops at three minutes. Imports are limited to 100 MiB and ten minutes of decoded audio.
 
-Use the menu-bar icon to open wisprM or start/finish dictation. Closing its window keeps the menu-bar app running; choose **Quit wisprM** or press Command–Q to exit.
+wisprM appears in the Dock and Command–Tab while running. Click its Dock icon to reopen the window, or use the menu-bar icon to open wisprM or start/finish dictation. Closing its window keeps the app running in the Dock and menu bar; choose **Quit wisprM** or press Command–Q to exit.
 
 ## Choose a speech model
 
@@ -123,6 +123,19 @@ Use the menu-bar icon to open wisprM or start/finish dictation. Closing its wind
 | Parakeet | mlx-community/parakeet-tdt-0.6b-v3, 0.6B parameters | Compatible Parakeet MLX weights |
 
 The Base and Small repositories are mlx-community/whisper-base-mlx and mlx-community/whisper-small-mlx. Default revisions are pinned in runtime/models.lock.json.
+
+The model selector shows download sizes for each pinned preset:
+
+| Preset | Download size |
+| --- | ---: |
+| Whisper Tiny | 74 MB |
+| Whisper Base | 144 MB |
+| Whisper Small | 481 MB |
+| Parakeet TDT v3 | 2.51 GB |
+
+These are decimal file sizes, not memory requirements. Values include the files selected by the runtime's download filter, from Hugging Face repository metadata checked on 2026-10-23: [Tiny](https://huggingface.co/mlx-community/whisper-tiny/tree/78c52ab98ca87f570bc57ad852e15ef7060f9f76), [Base](https://huggingface.co/mlx-community/whisper-base-mlx/tree/1e3e249fb8d01c655324bd6841b1deadffd6d04c), [Small](https://huggingface.co/mlx-community/whisper-small-mlx/tree/45f3915923c7a79a5a5b5a7d909d39aeb0e5630e), [Parakeet](https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3/tree/ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15).
+
+Select a preset to see its full local location, cache status, and measured local file size. **Show in Finder** opens an existing folder; **Refresh** checks it again after external changes. Before downloading, the panel shows the expected destination. The default cache is `~/.cache/huggingface/hub`; `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, `HF_HOME`, and `XDG_CACHE_HOME` overrides are respected. Custom folders show their own path and measured file size; unknown remote downloads are labelled as unknown. Local file sizes follow snapshot symlinks to their targets and do not represent unique physical disk allocation across shared snapshots.
 
 Cached pinned weights load without a network request. A cache miss downloads the selected model. Custom remote IDs can specify an immutable revision as repo/name@<40-character-commit>; absolute local model folders are also supported.
 

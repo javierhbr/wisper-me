@@ -102,6 +102,6 @@ public enum SpeechEngine: String, CaseIterable, Codable, Sendable {
         self == .whisper ? "mlx-community/whisper-tiny" : "mlx-community/parakeet-tdt-0.6b-v3"
     }
     public var detail: String {
-        self == .whisper ? "Tiny / Base / Small · multilingual" : "TDT v3 · 0.6B parameters · multilingual"
+        self == .whisper ? "Tiny / Base / Small · multilingual" : "TDT 0.6B v3 · multilingual"
     }
 }

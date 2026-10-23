@@ -1,16 +1,20 @@
 {
   "models": {
     "mlx-community/whisper-tiny": {
-      "revision": "78c52ab98ca87f570bc57ad852e15ef7060f9f76"
+      "revision": "78c52ab98ca87f570bc57ad852e15ef7060f9f76",
+      "download_bytes": 74418670
     },
     "mlx-community/parakeet-tdt-0.6b-v3": {
-      "revision": "ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15"
+      "revision": "ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15",
+      "download_bytes": 2508533910
     },
     "mlx-community/whisper-base-mlx": {
-      "revision": "1e3e249fb8d01c655324bd6841b1deadffd6d04c"
+      "revision": "1e3e249fb8d01c655324bd6841b1deadffd6d04c",
+      "download_bytes": 143724807
     },
     "mlx-community/whisper-small-mlx": {
-      "revision": "45f3915923c7a79a5a5b5a7d909d39aeb0e5630e"
+      "revision": "45f3915923c7a79a5a5b5a7d909d39aeb0e5630e",
+      "download_bytes": 481308201
     }
   }
 }

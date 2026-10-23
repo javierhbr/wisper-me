@@ -237,6 +237,8 @@ struct ModelsView: View {
                                 }.foregroundStyle(Palette.green)
                                 Text(engine.rawValue).font(.system(size: 21, design: .serif))
                                 Text(engine.detail).font(.system(size: 10)).foregroundStyle(Palette.muted)
+                                Text(engine == .whisper ? SpeechModelCatalog.bundled.whisperDownloadRange : SpeechModelCatalog.bundled.downloadSize(engine.defaultModel))
+                                    .font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.green)
                             }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
                                 .background(model.settings.values.engine == engine ? Palette.green.opacity(0.06) : Color.white.opacity(0.5))
                                 .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -247,9 +249,27 @@ struct ModelsView: View {
                 if model.settings.values.engine == .whisper {
                     HStack(spacing: 8) {
                         Text("PRESETS").font(.system(size: 8, design: .monospaced)).foregroundStyle(Palette.muted)
-                        ForEach(["tiny", "base", "small"], id: \.self) { size in
-                            Button(size.capitalized) { model.settings.values.whisperModel = "mlx-community/whisper-" + size + (size == "tiny" ? "" : "-mlx") }
-                                .font(.system(size: 11)).disabled(model.active || model.runtime.busy)
+                        ForEach(SpeechModelCatalog.whisperPresets, id: \.id) { preset in
+                            let selected = model.settings.values.whisperModel == preset.id
+                            Button { model.settings.values.whisperModel = preset.id } label: {
+                                VStack(spacing: 3) {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "checkmark.circle.fill").opacity(selected ? 1 : 0)
+                                        Text(preset.name)
+                                    }.font(.system(size: 11, weight: .semibold))
+                                    Text(SpeechModelCatalog.bundled.downloadSize(preset.id))
+                                        .font(.system(size: 9)).opacity(selected ? 0.9 : 1)
+                                }
+                                .foregroundStyle(selected ? Color.white : Palette.ink)
+                                .padding(.horizontal, 14).padding(.vertical, 10)
+                                .background(selected ? Palette.green : Color.white.opacity(0.5))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected ? Palette.green : Palette.line))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(selected ? .isSelected : [])
+                            .help(SpeechModelCatalog.bundled.location(for: preset.id)?.path ?? preset.id)
+                            .disabled(model.active || model.runtime.busy)
                         }
                     }
                 }
@@ -258,7 +278,9 @@ struct ModelsView: View {
                     TextField("Hugging Face model ID or absolute folder", text: Binding(
                         get: { model.settings.values.modelID }, set: { model.settings.values.modelID = $0 }))
                         .textFieldStyle(.roundedBorder).disabled(model.active || model.runtime.busy)
-                    Text("Whisper Tiny is the lightest preset. Parakeet 0.6B is a larger, accuracy-focused option. Custom folders must contain weights compatible with the selected engine.")
+                    ModelStorageView(modelID: model.settings.values.modelID, engine: model.settings.values.engine,
+                                     refresh: model.runtime.busy.description + (model.runtime.loadedKey ?? ""))
+                    Text("Download sizes are for the pinned model files, not memory use. Custom folders must contain weights compatible with the selected engine.")
                         .font(.system(size: 11)).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 10) {
                         if !model.runtime.installed {

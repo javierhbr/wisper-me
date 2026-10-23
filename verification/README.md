@@ -4,7 +4,7 @@ Verified on Apple Silicon with macOS26.6.2 and Swift6.3.2.
 
 ## Automated checks
 
-- **51 Swift tests:** native lifecycle/audio, Core HTTP and privacy policies, workflow cancellation/cleanup, storage, migration, and formatting.
+- **55 Swift tests:** native lifecycle/audio, Core HTTP and privacy policies, workflow cancellation/cleanup, model sizes/cache locations, storage, migration, and formatting.
 - **25 Python checks:** bounded decoding, private temporary audio, worker protocol/model pins/cache-first loading, installer process cleanup, and local app-installation safeguards.
 - Actual cached **Whisper Tiny** and **Parakeet0.6B v3** inference against generated speech, with HF_HUB_OFFLINE=1. No model downloads. The short sample retained WER0.1333 for Whisper and0.0 for Parakeet; this is a functional check, not an accuracy/latency benchmark.
 - Fully hashed dependency lock dry-run against the existing verified runtime. All62 packages were resolved from official package metadata; four default model revisions are immutable.

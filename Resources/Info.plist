@@ -10,7 +10,6 @@
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
-<key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSMicrophoneUsageDescription</key><string>wisprM records your voice so your selected local speech model can transcribe it. Audio is not sent to a server.</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>

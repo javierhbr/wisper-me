@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 import re
+import signal
 from pathlib import Path
 import subprocess
 import tempfile
@@ -24,9 +25,24 @@ with tempfile.TemporaryDirectory(prefix="wisprm-inference-") as temporary:
         {"id": "transcribe", "op": "transcribe", "audio": str(audio), "language": "en"},
         {"id": "quit", "op": "quit"},
     ]
-    result = subprocess.run(
+    environment = os.environ.copy()
+    environment["WISPRM_RECORDINGS_DIR"] = str(Path(temporary) / "Recordings")
+    environment["HF_HUB_OFFLINE"] = "1"
+    worker = subprocess.Popen(
         [str(runtime / "bin/python3"), str(root / "runtime/worker.py")],
-        input="".join(json.dumps(r) + "\n" for r in requests), capture_output=True, text=True, timeout=1500)
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, env=environment, start_new_session=True)
+    try:
+        stdout, stderr = worker.communicate("".join(json.dumps(r) + "\n" for r in requests), timeout=1500)
+    finally:
+        if worker.poll() is None:
+            os.killpg(worker.pid, signal.SIGTERM)
+            try:
+                worker.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(worker.pid, signal.SIGKILL)
+                worker.wait()
+    result = subprocess.CompletedProcess(worker.args, worker.returncode, stdout, stderr)
     replies = [json.loads(line) for line in result.stdout.splitlines()]
     terminal = {r["id"]: r for r in replies if "ok" in r}
     print(json.dumps(replies, indent=2))

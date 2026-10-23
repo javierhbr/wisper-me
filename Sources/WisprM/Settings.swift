@@ -11,15 +11,6 @@ enum AppPaths {
         let bundled = Bundle.main.resourceURL!.appendingPathComponent("runtime")
         return FileManager.default.fileExists(atPath: bundled.path) ? bundled : URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("runtime")
     }
-    static func create() {
-        for directory in [support, recordings] {
-            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        }
-        // Remove only this app's abandoned temporary audio from an earlier crash.
-        for url in (try? FileManager.default.contentsOfDirectory(at: recordings, includingPropertiesForKeys: nil)) ?? [] where url.pathExtension == "caf" {
-            try? FileManager.default.removeItem(at: url)
-        }
-    }
 }
 
 struct Preferences: Codable {
@@ -28,6 +19,7 @@ struct Preferences: Codable {
     var parakeetModel = SpeechEngine.parakeet.defaultModel
     var language = "auto"
     var style: WritingStyle = .natural
+    var spokenCommands = false
     var autoInsert = true
     var keepHistory = false
     var polish = false
@@ -37,37 +29,62 @@ struct Preferences: Codable {
         get { engine == .whisper ? whisperModel : parakeetModel }
         set { if engine == .whisper { whisperModel = newValue } else { parakeetModel = newValue } }
     }
+    init() {}
+    enum CodingKeys: String, CodingKey {
+        case engine, whisperModel, parakeetModel, language, style, spokenCommands
+        case autoInsert, keepHistory, polish, endpoint, textModel
+    }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        engine = try values.decodeIfPresent(SpeechEngine.self, forKey: .engine) ?? .whisper
+        whisperModel = try values.decodeIfPresent(String.self, forKey: .whisperModel) ?? SpeechEngine.whisper.defaultModel
+        if whisperModel == "mlx-community/whisper-base" { whisperModel = "mlx-community/whisper-base-mlx" }
+        if whisperModel == "mlx-community/whisper-small" { whisperModel = "mlx-community/whisper-small-mlx" }
+        parakeetModel = try values.decodeIfPresent(String.self, forKey: .parakeetModel) ?? SpeechEngine.parakeet.defaultModel
+        language = try values.decodeIfPresent(String.self, forKey: .language) ?? "auto"
+        style = try values.decodeIfPresent(WritingStyle.self, forKey: .style) ?? .natural
+        spokenCommands = try values.decodeIfPresent(Bool.self, forKey: .spokenCommands) ?? false
+        autoInsert = try values.decodeIfPresent(Bool.self, forKey: .autoInsert) ?? true
+        keepHistory = try values.decodeIfPresent(Bool.self, forKey: .keepHistory) ?? false
+        polish = try values.decodeIfPresent(Bool.self, forKey: .polish) ?? false
+        endpoint = try values.decodeIfPresent(String.self, forKey: .endpoint) ?? "http://localhost:11434/v1/chat/completions"
+        textModel = try values.decodeIfPresent(String.self, forKey: .textModel) ?? ""
+    }
 }
 
 @MainActor final class SettingsStore: ObservableObject {
+    private let defaults: UserDefaults
     @Published var values: Preferences { didSet { save() } }
-    init() {
-        if let data = UserDefaults.standard.data(forKey: "preferences.v1"),
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        if let data = defaults.data(forKey: "preferences.v1"),
            let values = try? JSONDecoder().decode(Preferences.self, from: data) { self.values = values }
         else { values = Preferences() }
     }
     private func save() {
-        if let data = try? JSONEncoder().encode(values) { UserDefaults.standard.set(data, forKey: "preferences.v1") }
+        if let data = try? JSONEncoder().encode(values) { defaults.set(data, forKey: "preferences.v1") }
     }
 }
 
 enum CredentialStore {
     static let service = "com.wisprm.desktop.polishing"
-    static func read() -> String {
+    static func read(for endpoint: String) -> String {
+        guard let origin = EndpointOrigin.key(for: endpoint) else { return "" }
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service, kSecAttrAccount as String: "api-key",
+            kSecAttrService as String: service, kSecAttrAccount as String: origin,
             kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
         var result: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
               let data = result as? Data else { return "" }
         return String(data: data, encoding: .utf8) ?? ""
     }
-    static func save(_ value: String) throws {
+    static func save(_ value: String, for endpoint: String) throws {
+        guard let origin = EndpointOrigin.key(for: endpoint) else { throw PolishError.invalidEndpoint }
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service, kSecAttrAccount as String: "api-key"]
+            kSecAttrService as String: service, kSecAttrAccount as String: origin]
         if value.isEmpty {
             let status = SecItemDelete(query as CFDictionary)
-            guard status == errSecSuccess || status == errSecItemNotFound else { throw AppFailure("Keychain could not delete the credential (\(status)).") }
+            guard status == errSecSuccess || status == errSecItemNotFound else { throw AppFailure("Keychain could not delete this server's credential (\(status)).") }
             return
         }
         let data = Data(value.utf8)
@@ -77,9 +94,10 @@ enum CredentialStore {
             item[kSecValueData as String] = data
             item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
             let added = SecItemAdd(item as CFDictionary, nil)
-            guard added == errSecSuccess else { throw AppFailure("Keychain could not save the credential (\(added)).") }
-        } else if status != errSecSuccess { throw AppFailure("Keychain could not update the credential (\(status)).") }
+            guard added == errSecSuccess else { throw AppFailure("Keychain could not save this server's credential (\(added)).") }
+        } else if status != errSecSuccess { throw AppFailure("Keychain could not update this server's credential (\(status)).") }
     }
+    // The former unscoped "api-key" account is deliberately never read or sent.
 }
 
 struct AppFailure: LocalizedError {
@@ -87,7 +105,6 @@ struct AppFailure: LocalizedError {
     init(_ message: String) { self.message = message }
     var errorDescription: String? { message }
 }
-
 struct HistoryEntry: Codable, Identifiable {
     let id: UUID
     let date: Date

@@ -1,40 +1,49 @@
-# Verification
+# Verification — review fixes, version 0.1.1
 
-Verified on Apple Silicon, macOS 26.6.2, Swift 6.3.2.
+Verified on Apple Silicon with macOS26.6.2 and Swift6.3.2.
 
-## Completed
+## Automated checks
 
-- Automatic clipboard copy after transcription was verified in the packaged app. Command–V pasted the completed transcript without clicking Copy, including after the former clipboard-restoration delay.
+- **51 Swift tests:** native lifecycle/audio, Core HTTP and privacy policies, workflow cancellation/cleanup, storage, migration, and formatting.
+- **15 Python checks:** bounded decoding, private temporary audio, worker protocol/model pins/cache-first loading, and installer process cleanup.
+- Actual cached **Whisper Tiny** and **Parakeet0.6B v3** inference against generated speech, with HF_HUB_OFFLINE=1. No model downloads. The short sample retained WER0.1333 for Whisper and0.0 for Parakeet; this is a functional check, not an accuracy/latency benchmark.
+- Fully hashed dependency lock dry-run against the existing verified runtime. All62 packages were resolved from official package metadata; four default model revisions are immutable.
+- Release app compilation and ad hoc code-signature verification after bundled-worker startup. Bytecode writes inside the app are disabled and regression-tested.
+- Bounded HTTP text client previously checked against local Qwen2.5 1.5B; the final client is also checked again during release validation.
 
-- Native debug compilation and release app packaging.
-- Ad hoc code-signature verification.
-- Swift unit tests for formatting, spoken punctuation, paragraphs, bullets, endpoint restrictions, polishing requests, and preservation of text when polishing returns empty output.
-- Runtime-installer cancellation terminates and reaps its owned child.
-- Python worker protocol: valid JSON-line framing, progress events, rejected unsupported engines, missing loaded model, and clean shutdown.
-- Real Whisper Tiny inference on generated speech. Word error rate for this one short sample: 13.33%.
-- Real Parakeet 0.6B v3 inference on the same generated passage. Word error rate for that sample: 0%.
-- Both speech models were loaded through the packaged app's UI.
-- Native audio-file import produced actual transcripts for both engines, including a model switch in the same worker.
-- Installed-model discovery against the local Ollama service.
-- Real local text polishing through wisprM's client with Qwen 2.5 1.5B. The test preserved the speaker and recipient.
-- The native app's Parakeet → local Qwen → text pipeline completed without an error.
-- Dictate, Models, Settings, History, and the standard Mac menu were inspected through the accessibility tree. The model screen was visually inspected.
+Tests use isolated HOME/TMPDIR/recording paths and fixture processes. Workflow checks inject a synthetic clipboard sink and empty credential provider; they never record audio, alter the real clipboard, or read user credentials.
 
-The single synthetic passage is a functional check, not an accuracy or latency benchmark. The JSON reports retain expected and actual speech output. First-run times include model download/loading and must not be presented as steady-state latency.
+## Review findings and fixes
 
-## Not yet verified
+| Finding | Fix and regression evidence |
+| --- | --- |
+| Credentials follow endpoint changes | Keychain account is normalized origin; old unscoped account never read. Origin normalization and cross-server separation tested. |
+| Privacy-off ignored during capture | Live consent overrides captured settings, remains available while the runtime is busy, and cancels pending HTTP. Four workflow tests cover off before/after recognition, cancellation, and quit. |
+| Global Paste destination race | Removed all global key/Paste synthesis. Only verified direct AX insertion remains; unknown/secure fields fail closed. Eligibility policy tested; native OS compatibility remains a manual check. |
+| Unbounded imported audio |100MiB/600s limits, streamed PCM, <=30s inference windows. Decoder budget/signature/chunk tests plus actual offline inference. Picker offers only the worker's supported containers. |
+| Shared cancellation handle | Independent capture/dictation/discovery/setup/polish tasks; discovery disabled during active work. Pending HTTP cancellation workflow test. |
+| Worker descendants outlive cancellation | Verified owned group, TERM→grace→KILL, awaited direct child, restart serialization. Native fixture tests include decoder descendants and uncooperative workers. |
+| Audio survives normal quit | Explicit owned-file registry, terminateLater/await cleanup, visible failures. Workflow and storage tests, including inaccessible-vs-missing paths. |
+| URLSession retention | One owned bounded client, explicit invalidation and no delegate owner cycle. Cancellation/shutdown/reuse tests and source re-review. |
+| Formatter corrupts names/URLs/ordinary words | Protected spans and mixed-case names; explicit spoken-command opt-in. Actual corruption regressions covered. |
+| Unbounded HTTP responses | Receive-byte and Content-Length limits before JSON decode; bounded generation/resource time; no redirects. Chunked/open response fixtures verify early rejection. |
+| Channel-zero-only eligibility | Multi-channel/interleaved RMS and frame budget tests. |
+| MP3/FLAC picker mismatch | Native format policy and worker allowlists aligned; format, size and container-signature tests. |
+| Unterminated reasoning reaches output | Strict stop reason, tool/refusal rejection, and complete reasoning-tag parsing. Malformed/truncated output tests. |
+| Sticky original view / disabled Copy | Reset on transcript generation, visible return control while selected, display/copy based on the selected text. Native UI checked during packaging. |
+| Silent history deletion failure | Delete directly; only ENOENT counts as absent. Preserve ownership/state and surface failures. Missing/inaccessible/deletion tests. |
+| Meter updates, drifting deadline, sleeping watchdogs | Isolated meter view/polling; monotonic+frame deadline; canceled completed watchdogs. Lifecycle/audio tests. |
+| Mutable dependencies/model defaults |62 exact package versions with1194 verified wheel hashes; four pinned model revisions. No unpinned pip upgrade. |
 
-- Live microphone capture on this installation: the user has not granted microphone access for this new app.
-- Actual insertion into a different application, secure-field exclusion at runtime, across real applications: Accessibility approval is pending.
-- Broad compatibility with every Mac application or language.
-- Launch-at-login behavior after logout/restart.
-- Intel Macs, App Store distribution, Developer ID signing, or notarization.
-- Arbitrary custom weights or arbitrary text servers. The app implements compatible interfaces, not universal model-format support.
+The first HTTP fixture run stalled because unfinished synthetic responses omitted MIME/version metadata. Corrected HTTP/1.1 application/json fixtures now exercise the original early-error assertions; no safety assertions were relaxed.
 
-Permission-dependent paths are implemented and compiled; they are not represented as completed end-to-end tests.
+## Remaining validation limits
 
-## Local-model observations
+- No claim of universal AX insertion support. Unknown or unsupported fields deliberately require manual Command–V. No runtime permission was granted by these fixes.
+- Generated PCM/buffer tests cover multi-channel behavior; the rebuilt capture path has not been exercised on every physical microphone/interface.
+- The resource limits were tested with bounded fixtures; no intentional machine-exhaustion test or broad latency/RAM benchmark was performed.
+- Arbitrary custom model weights and arbitrary compatible text servers are not certified.
+- Launch-at-login across reboot, Intel Macs, App Store/Developer ID signing, and notarization remain unverified.
+- An ad hoc rebuild can require the user to reauthorize macOS permissions.
 
-Whisper Tiny misrecognized “tomorrow morning” in the sample. Parakeet transcribed it exactly. Qwen 0.5B changed a sentence's meaning/structure during polishing; Qwen 1.5B passed the tested case. Polishing remains optional and the original dictation remains accessible.
-
-The local MLX runtime and both speech models were installed/downloaded for these checks. Local Qwen 0.5B and 1.5B models were also downloaded into Ollama for comparison.
+Source code and public dependencies remain original/separate from Wispr Flow. The existing untracked .serena tooling folder was not modified.

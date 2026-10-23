@@ -69,7 +69,7 @@ struct RootView: View {
                 }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }.padding(32).frame(maxWidth: .infinity, maxHeight: .infinity).background(Palette.background)
         }.foregroundStyle(Palette.ink).frame(minWidth: 940, minHeight: 700)
-            .onChange(of: model.settings.values.keepHistory) { _, value in if !value { model.clearHistory() } }
+
     }
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -120,6 +120,7 @@ struct RootView: View {
 struct DictationView: View {
     @ObservedObject var model: AppModel
     @State private var showOriginal = false
+    private var displayedText: String { showOriginal ? model.rawTranscript : model.transcript }
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 9) {
@@ -142,11 +143,11 @@ struct DictationView: View {
                     Text(model.phaseTitle.uppercased()).font(.system(size: 9, weight: .semibold, design: .monospaced)).tracking(1.2)
                     Spacer()
                     if model.recording { Text(String(format: "%02d:%02d", model.seconds / 60, model.seconds % 60)).monospacedDigit() }
-                    else { Text("\(model.transcript.split(whereSeparator: \.isWhitespace).count) words") }
+                    else { Text("\(displayedText.split(whereSeparator: \.isWhitespace).count) words") }
                 }.font(.system(size: 10)).foregroundStyle(Palette.muted).padding(18)
                 Divider().overlay(Palette.line)
                 ZStack(alignment: .topLeading) {
-                    if model.transcript.isEmpty {
+                    if displayedText.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             Text(model.recording ? "Go on. We’re listening." : model.active ? "Your words are on their way…" : "Your next good thought starts here.")
                                 .font(.system(size: 21, design: .serif)).foregroundStyle(Palette.muted.opacity(0.75))
@@ -154,12 +155,12 @@ struct DictationView: View {
                                 .font(.system(size: 12)).foregroundStyle(Palette.muted).frame(maxWidth: 360, alignment: .leading)
                         }.padding(20).allowsHitTesting(false)
                     }
-                    TextEditor(text: Binding(get: { showOriginal ? model.rawTranscript : model.transcript },
+                    TextEditor(text: Binding(get: { displayedText },
                                             set: { if !showOriginal { model.transcript = $0 } })).font(.system(size: 18, design: .serif))
-                        .scrollContentBackground(.hidden).padding(14).opacity(model.transcript.isEmpty ? 0.03 : 1)
+                        .scrollContentBackground(.hidden).padding(14).opacity(displayedText.isEmpty ? 0.03 : 1)
                         .disabled(model.active || showOriginal).accessibilityLabel("Dictated text")
                 }.frame(minHeight: 145, maxHeight: .infinity)
-                if model.recording { AudioMeter(level: model.meter).padding(.horizontal, 20).padding(.bottom, 15) }
+                if model.recording { LiveAudioMeter(levels: model.audioLevels).padding(.horizontal, 20).padding(.bottom, 15) }
                 if model.phase == .transcribing || model.phase == .polishing {
                     ProgressView().controlSize(.small).padding(.horizontal, 20).padding(.bottom, 15)
                 }
@@ -172,12 +173,12 @@ struct DictationView: View {
                         Button("Cancel", action: model.cancel).buttonStyle(.plain).font(.system(size: 12)).padding(.horizontal, 8)
                     }
                     Spacer()
-                    if !model.rawTranscript.isEmpty && model.rawTranscript != model.transcript {
+                    if showOriginal || (!model.rawTranscript.isEmpty && model.rawTranscript != model.transcript) {
                         Button(showOriginal ? "Show polished" : "Show original") { showOriginal.toggle() }
                             .buttonStyle(.plain).font(.system(size: 11)).disabled(model.active)
                     }
                     Button { model.copy(showOriginal ? model.rawTranscript : model.transcript) } label: { Label("Copy", systemImage: "doc.on.doc") }
-                        .buttonStyle(.plain).font(.system(size: 12)).disabled(model.transcript.isEmpty)
+                        .buttonStyle(.plain).font(.system(size: 12)).disabled(displayedText.isEmpty)
                 }.padding(16).background(Palette.sidebar.opacity(0.35))
             }.background(Color.white.opacity(0.65)).clipShape(RoundedRectangle(cornerRadius: 13))
                 .overlay(RoundedRectangle(cornerRadius: 13).stroke(Palette.line, lineWidth: 0.8))
@@ -196,8 +197,13 @@ struct DictationView: View {
                 Image(systemName: "info.circle").padding(.top, 1)
                 Text(model.note).textSelection(.enabled)
             }.font(.system(size: 11)).foregroundStyle(Palette.muted).frame(minHeight: 28, alignment: .topLeading)
-        }
+        }.onChange(of: model.transcriptGeneration) { _, _ in showOriginal = false }
     }
+}
+
+struct LiveAudioMeter: View {
+    @ObservedObject var levels: AudioLevels
+    var body: some View { AudioMeter(level: levels.level) }
 }
 
 struct AudioMeter: View {
@@ -242,7 +248,7 @@ struct ModelsView: View {
                     HStack(spacing: 8) {
                         Text("PRESETS").font(.system(size: 8, design: .monospaced)).foregroundStyle(Palette.muted)
                         ForEach(["tiny", "base", "small"], id: \.self) { size in
-                            Button(size.capitalized) { model.settings.values.whisperModel = "mlx-community/whisper-" + size }
+                            Button(size.capitalized) { model.settings.values.whisperModel = "mlx-community/whisper-" + size + (size == "tiny" ? "" : "-mlx") }
                                 .font(.system(size: 11)).disabled(model.active || model.runtime.busy)
                         }
                     }
@@ -265,7 +271,7 @@ struct ModelsView: View {
                             ProgressView().controlSize(.small)
                             Button("Cancel", action: model.cancel).buttonStyle(.plain).font(.caption)
                         } else if model.runtime.loadedKey != nil {
-                            Button("Unload") { model.runtime.shutdown() }.buttonStyle(.plain).font(.caption).disabled(model.active)
+                            Button("Unload", action: model.unloadModel).buttonStyle(.plain).font(.caption).disabled(model.active)
                         }
                     }.padding(.top, 3)
                     Text(model.runtime.message).font(.system(size: 11)).foregroundStyle(Palette.green).textSelection(.enabled)
@@ -273,6 +279,12 @@ struct ModelsView: View {
                 Divider().padding(.vertical, 5)
                 sectionLabel("02  /  TEXT POLISHING")
                 Toggle("Polish with a language model", isOn: preferences.polish).toggleStyle(.switch).font(.system(size: 13, weight: .medium))
+                    .disabled(!PolishingConsent.canChangeToggle(currentEnabled: model.settings.values.polish,
+                                                               sessionActive: model.active, runtimeBusy: model.runtime.busy))
+                if model.active && model.settings.values.polish {
+                    Text("Turning polishing off cancels pending polishing and keeps local cleanup. Text already sent cannot be recalled.")
+                        .font(.system(size: 11)).foregroundStyle(Palette.muted)
+                }
                 Text("Optional. Use any text model served through a compatible chat-completions API. Ollama and LM Studio can run entirely on this Mac.")
                     .font(.system(size: 12)).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
                 if model.settings.values.polish {
@@ -280,7 +292,9 @@ struct ModelsView: View {
                         labeledField("Endpoint", text: preferences.endpoint)
                         HStack(alignment: .bottom, spacing: 10) {
                             labeledField("Model name", text: preferences.textModel)
-                            Button("Find models", action: model.discoverTextModels).padding(.bottom, 2)
+                            Button(model.isDiscovering ? "Finding…" : "Find models", action: model.discoverTextModels)
+                                .padding(.bottom, 2).disabled(model.active || model.runtime.busy || model.isDiscovering)
+                            if model.isDiscovering { Button("Cancel", action: model.cancelDiscovery).font(.caption) }
                         }
                         if !model.ollamaModels.isEmpty {
                             Picker("Installed models", selection: preferences.textModel) {
@@ -291,7 +305,7 @@ struct ModelsView: View {
                              ? "Only transcript text is sent to your local server."
                              : "Transcript text will be sent to the endpoint you configure. Audio stays on this Mac.")
                             .font(.system(size: 11)).foregroundStyle(Palette.green)
-                    }
+                    }.disabled(model.active || model.runtime.busy)
                 }
             }.padding(.bottom, 10)
         }
@@ -322,6 +336,9 @@ struct PreferencesView: View {
                 }
                 Text("Whisper uses this language hint. Parakeet detects supported languages automatically. Select English for Parakeet spoken commands such as “new paragraph” and “question mark”.")
                     .font(.system(size: 11)).foregroundStyle(Palette.muted)
+                Toggle("Interpret spoken punctuation commands in English", isOn: preferences.spokenCommands)
+                Text("Off preserves literal words such as “colon”. Turn on to interpret commands such as “new paragraph” and “question mark”.")
+                    .font(.system(size: 11)).foregroundStyle(Palette.muted)
                 Divider()
                 sectionLabel("MAC INTEGRATION")
                 Toggle("Insert text into the app I’m using", isOn: preferences.autoInsert)
@@ -343,17 +360,21 @@ struct PreferencesView: View {
                 Toggle("Keep the last 30 dictations on this Mac", isOn: preferences.keepHistory)
                 Text("History is off by default. Turning it off deletes saved history. Temporary audio files are deleted after transcription or cancellation, and cleaned up on the next launch after a crash.")
                     .font(.system(size: 11)).foregroundStyle(Palette.muted)
-                HStack { Text("Saved history: \(model.history.count) items").font(.caption); Spacer(); Button("Delete history", action: model.clearHistory).disabled(model.history.isEmpty) }
+                HStack { Text("Saved history: \(model.history.count) items").font(.caption); Spacer(); Button("Delete history", action: model.clearHistory).disabled(model.history.isEmpty && !model.hasSavedHistory) }
                 Divider()
                 sectionLabel("OPTIONAL SERVER CREDENTIAL")
+                Text("Credential for: " + (EndpointOrigin.key(for: model.settings.values.endpoint) ?? "Enter a valid server endpoint first"))
+                    .font(.system(size: 11)).foregroundStyle(Palette.muted).textSelection(.enabled)
+                Text("Credentials are never reused across servers. If you saved a key in an earlier version, save it again for this server.")
+                    .font(.system(size: 11)).foregroundStyle(Palette.muted)
                 SecureField("API key, if your text server requires one", text: $apiKey).textFieldStyle(.roundedBorder)
                 HStack {
                     Button("Save in Keychain") {
-                        do { try CredentialStore.save(apiKey); apiKey = ""; keyMessage = "Saved securely in macOS Keychain." }
+                        do { try CredentialStore.save(apiKey, for: model.settings.values.endpoint); apiKey = ""; keyMessage = "Saved securely in macOS Keychain." }
                         catch { model.error = error.localizedDescription }
                     }
                     Button("Remove key") {
-                        do { try CredentialStore.save(""); keyMessage = "Credential removed." } catch { model.error = error.localizedDescription }
+                        do { try CredentialStore.save("", for: model.settings.values.endpoint); keyMessage = "Credential removed." } catch { model.error = error.localizedDescription }
                     }
                     Text(keyMessage).font(.caption).foregroundStyle(Palette.muted)
                 }
@@ -361,6 +382,7 @@ struct PreferencesView: View {
                     .font(.system(size: 11)).foregroundStyle(Palette.green).padding(.top, 8)
             }.toggleStyle(.switch).font(.system(size: 13)).padding(.bottom, 15)
         }.disabled(model.active)
+            .onChange(of: model.settings.values.endpoint) { _, _ in apiKey = ""; keyMessage = "" }
     }
 }
 
@@ -412,7 +434,7 @@ struct HUDView: View {
                     Text(model.recording ? String(format: "%02d:%02d", model.seconds / 60, model.seconds % 60) : model.phase == .polishing ? "AI POLISH" : "ON DEVICE")
                         .font(.system(size: 9, design: .monospaced)).foregroundStyle(Palette.muted)
                 }
-                if model.recording { AudioMeter(level: model.meter) }
+                if model.recording { LiveAudioMeter(levels: model.audioLevels) }
                 else { ProgressView().controlSize(.mini) }
                 Text("⌃ ⌥ Space to finish").font(.system(size: 9)).foregroundStyle(Palette.muted)
             }

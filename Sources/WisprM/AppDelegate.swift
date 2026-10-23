@@ -99,8 +99,19 @@ private final class FloatingPanel: NSPanel {
     @objc private func quit() { NSApp.terminate(nil) }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { openWindow(); return true }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    private var terminationTask: Task<Void, Never>?
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard terminationTask == nil else { return .terminateLater }
+        terminationTask = Task {
+            let cleaned = await model.shutdown()
+            if !cleaned { openWindow() }
+            sender.reply(toApplicationShouldTerminate: cleaned)
+            terminationTask = nil
+        }
+        return .terminateLater
+    }
     func applicationWillTerminate(_ notification: Notification) {
-        hotkey.unregister(); model.shutdown()
+        hotkey.unregister()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
 }

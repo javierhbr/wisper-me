@@ -15,6 +15,7 @@ let package = Package(
             .linkedFramework("Security"), .linkedFramework("ServiceManagement")
         ]),
         .executableTarget(name: "WisprCheck", dependencies: ["WisprCore"], path: "Tools/WisprCheck"),
-        .testTarget(name: "WisprCoreTests", dependencies: ["WisprCore"])
+        .testTarget(name: "WisprCoreTests", dependencies: ["WisprCore"]),
+        .testTarget(name: "WisprMTests", dependencies: ["WisprM"])
     ]
 )

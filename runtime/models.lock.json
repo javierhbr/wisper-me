@@ -1,0 +1,16 @@
+{
+  "models": {
+    "mlx-community/whisper-tiny": {
+      "revision": "78c52ab98ca87f570bc57ad852e15ef7060f9f76"
+    },
+    "mlx-community/parakeet-tdt-0.6b-v3": {
+      "revision": "ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15"
+    },
+    "mlx-community/whisper-base-mlx": {
+      "revision": "1e3e249fb8d01c655324bd6841b1deadffd6d04c"
+    },
+    "mlx-community/whisper-small-mlx": {
+      "revision": "45f3915923c7a79a5a5b5a7d909d39aeb0e5630e"
+    }
+  }
+}

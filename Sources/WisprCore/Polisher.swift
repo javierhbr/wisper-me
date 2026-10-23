@@ -1,41 +1,51 @@
 import Foundation
+
 public struct PolishConfiguration: Sendable {
     public let endpoint: String, model: String, apiKey: String
     public init(endpoint: String, model: String, apiKey: String = "") {
         self.endpoint = endpoint; self.model = model; self.apiKey = apiKey
     }
 }
-public enum PolishError: LocalizedError {
+
+public enum PolishError: LocalizedError, Equatable {
     case invalidEndpoint, missingModel, service(Int), emptyResponse
+    case responseTooLarge, inputTooLarge, invalidResponse, incompleteResponse
+    case invalidCredential, requestFailed, clientClosed
+
     public var errorDescription: String? {
         switch self {
         case .invalidEndpoint: return "Use HTTPS, or HTTP on localhost. Do not include credentials or query strings in URLs."
         case .missingModel: return "Choose a model for text polishing."
         case .service(let code): return "The text model returned HTTP \(code). Check the server and model."
         case .emptyResponse: return "The text model returned no usable text. Your transcript is preserved."
+        case .responseTooLarge: return "The model server response exceeded the safe size limit. Your transcript is preserved."
+        case .inputTooLarge: return "The transcript is too long for one polishing request. Your transcript is preserved."
+        case .invalidResponse: return "The model server returned an unusable response. Your transcript is preserved."
+        case .incompleteResponse: return "The model did not finish a plain-text response. Your transcript is preserved."
+        case .invalidCredential: return "The server credential contains an invalid line break. Check the saved credential."
+        case .requestFailed: return "The model server request failed. Check the server and connection."
+        case .clientClosed: return "The model client has been shut down."
         }
     }
 }
-private final class NoRedirects: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
-}
-public struct Polisher {
-    private let session: URLSession
-    public init(session: URLSession? = nil) {
-        if let session { self.session = session }
-        else {
-            let config = URLSessionConfiguration.ephemeral
-            config.httpCookieStorage = nil; config.urlCache = nil; config.timeoutIntervalForRequest = 45
-            self.session = URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
-        }
+
+/// Own one client for the app lifetime and close it during shutdown.
+/// An injected session contributes URLProtocol configuration only; no shared cookies or credentials are inherited.
+public final class Polisher: @unchecked Sendable {
+    private let http: HTTPClient
+
+    public init(session: URLSession? = nil, maximumResponseBytes: Int = 256 * 1024) {
+        http = HTTPClient(protocolClasses: session?.configuration.protocolClasses, maximumBytes: maximumResponseBytes)
     }
+
+    public func shutdown() { http.shutdown() }
+
     public func polish(_ text: String, style: WritingStyle, configuration: PolishConfiguration) async throws -> String {
-        guard let endpoint = EndpointPolicy.validate(configuration.endpoint) else { throw PolishError.invalidEndpoint }
-        guard !configuration.model.trimmingCharacters(in: .whitespaces).isEmpty else { throw PolishError.missingModel }
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if !configuration.apiKey.isEmpty { request.setValue("Bearer \(configuration.apiKey)", forHTTPHeaderField: "Authorization") }
+        guard !configuration.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw PolishError.missingModel }
+        guard text.utf8.count <= 64 * 1024 else { throw PolishError.inputTooLarge }
+        var request = try request(configuration: configuration)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let styleInstruction: String
         switch style {
         case .natural: styleInstruction = "Keep the original tone. Use plain paragraphs, not lists."
@@ -52,22 +62,87 @@ public struct Polisher {
         Do not add explanations, reasoning, quotation wrappers, checkboxes, or thinking tags.
         """
         request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "model": configuration.model, "stream": false, "temperature": 0.1,
+            "model": configuration.model, "stream": false, "temperature": 0.1, "max_tokens": 4096,
             "messages": [["role": "system", "content": instruction], ["role": "user", "content": text]]
         ])
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw PolishError.service((response as? HTTPURLResponse)?.statusCode ?? 0)
-        }
+        let data = try await http.data(for: request)
         struct Reply: Decodable {
-            struct Choice: Decodable { struct Message: Decodable { let content: String? }; let message: Message }
+            struct Choice: Decodable {
+                struct Message: Decodable {
+                    struct Tool: Decodable {}
+                    let content: String?
+                    let tool_calls: [Tool]?
+                    let function_call: Tool?
+                    let refusal: String?
+                }
+                let message: Message
+                let finish_reason: String?
+            }
             let choices: [Choice]
         }
-        let reply = try JSONDecoder().decode(Reply.self, from: data)
-        let output = (reply.choices.first?.message.content ?? "")
-            .replacingOccurrences(of: "(?s)<think>.*?</think>", with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let reply: Reply
+        do { reply = try JSONDecoder().decode(Reply.self, from: data) }
+        catch { throw PolishError.invalidResponse }
+        guard let choice = reply.choices.first else { throw PolishError.emptyResponse }
+        guard choice.finish_reason == "stop" else { throw PolishError.incompleteResponse }
+        guard choice.message.tool_calls?.isEmpty != false, choice.message.function_call == nil,
+              choice.message.refusal?.isEmpty != false else { throw PolishError.incompleteResponse }
+        let output = try Self.finalText(choice.message.content ?? "")
         guard !output.isEmpty, output.count < max(16000, text.count * 6) else { throw PolishError.emptyResponse }
         return output
     }
+
+    public func listModels(configuration: PolishConfiguration) async throws -> [String] {
+        var request = try request(configuration: configuration)
+        guard var parts = URLComponents(url: request.url!, resolvingAgainstBaseURL: false) else { throw PolishError.invalidEndpoint }
+        parts.path = "/v1/models"
+        guard let url = parts.url else { throw PolishError.invalidEndpoint }
+        request.url = url
+        request.httpMethod = "GET"
+        let data = try await http.data(for: request)
+        struct Listing: Decodable {
+            struct Model: Decodable { let id: String }
+            let data: [Model]
+        }
+        let listing: Listing
+        do { listing = try JSONDecoder().decode(Listing.self, from: data) }
+        catch { throw PolishError.invalidResponse }
+        return Array(listing.data.lazy.map(\.id).filter { !$0.isEmpty }.prefix(1000))
+    }
+
+    private func request(configuration: PolishConfiguration) throws -> URLRequest {
+        guard let url = EndpointPolicy.validate(configuration.endpoint),
+              EndpointOrigin.key(for: configuration.endpoint) != nil else { throw PolishError.invalidEndpoint }
+        guard configuration.apiKey.rangeOfCharacter(from: .newlines) == nil else { throw PolishError.invalidCredential }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 45)
+        request.httpShouldHandleCookies = false
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if !configuration.apiKey.isEmpty { request.setValue("Bearer \(configuration.apiKey)", forHTTPHeaderField: "Authorization") }
+        return request
+    }
+
+    private static func finalText(_ content: String) throws -> String {
+        let expression = try NSRegularExpression(pattern: "(?is)<\\s*/?\\s*think\\b[^>]*(?:>|$)")
+        var output = ""
+        var cursor = content.startIndex
+        var thinking = false
+        for match in expression.matches(in: content, range: NSRange(content.startIndex..., in: content)) {
+            guard let range = Range(match.range, in: content) else { throw PolishError.invalidResponse }
+            let token = content[range].lowercased()
+            if token == "<think>" {
+                guard !thinking else { throw PolishError.invalidResponse }
+                output += content[cursor..<range.lowerBound]
+                thinking = true
+            } else if token == "</think>" {
+                guard thinking else { throw PolishError.invalidResponse }
+                thinking = false
+            } else { throw PolishError.invalidResponse }
+            cursor = range.upperBound
+        }
+        guard !thinking else { throw PolishError.invalidResponse }
+        output += content[cursor...]
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    deinit { http.shutdown() }
 }

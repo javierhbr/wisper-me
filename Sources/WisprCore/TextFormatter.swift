@@ -5,16 +5,24 @@ public enum WritingStyle: String, CaseIterable, Codable, Sendable {
 }
 public struct TextFormatter: Sendable {
     public init() {}
-    public func format(_ input: String, style: WritingStyle = .natural, locale: String = "en-US") -> String {
-        var text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    public func format(_ input: String, style: WritingStyle = .natural, locale: String = "en-US",
+                       interpretCommands: Bool = false) -> String {
+        let protected = protectStructuredSpans(input.trimmingCharacters(in: .whitespacesAndNewlines))
+        var text = protected.text
         guard !text.isEmpty else { return "" }
         if locale.hasPrefix("en") {
-            for (phrase, replacement) in [
-                ("new paragraph", "\n\n"), ("new line", "\n"), ("question mark", "?"),
-                ("exclamation (?:mark|point)", "!"), ("full stop", "."),
-                ("comma", ","), ("semicolon", ";"), ("colon", ":")
-            ] { text = replace(text, "\\b\(phrase)\\b[,.]?", replacement) }
-            text = replace(text, "\\b(?:um+|uh+|erm+)\\b[,;]?", "")
+            if interpretCommands {
+                for (phrase, replacement) in [
+                    ("new paragraph", "\n\n"), ("new line", "\n"), ("question mark", "?"),
+                    ("exclamation (?:mark|point)", "!"), ("full stop", "."),
+                    ("comma", ","), ("semicolon", ";"), ("colon", ":")
+                ] {
+                    text = replace(text, "\\b\(phrase)\\b[,.]?", replacement, ignoreCase: true)
+                }
+            }
+            // Keep uppercase abbreviations such as UM intact.
+            text = replace(text, "\\b(?:[Uu]m+|[Uu]h+|[Ee]rm+)\\b[,;]?", "")
             text = replace(text, "\\bi\\b", "I")
         }
         text = replace(text, "[\\t ]+", " ")
@@ -24,26 +32,57 @@ public struct TextFormatter: Sendable {
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return "" }
         if style == .bullets {
-            return text.components(separatedBy: .newlines)
+            text = text.components(separatedBy: .newlines)
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-                .map { "• " + capitalize($0.replacingOccurrences(of: "^[•\\-] +", with: "", options: .regularExpression)) }
+                .map { "• " + capitalizeSentences($0.replacingOccurrences(of: "^[•\\-] +", with: "", options: .regularExpression)) }
                 .joined(separator: "\n")
+        } else {
+            text = capitalizeSentences(text)
+            // A protected URL, address, path, or code span is already complete as supplied.
+            if style != .casual, let last = text.last, last.isLetter || last.isNumber { text += "." }
         }
-        text = text.components(separatedBy: "\n").map(capitalize).joined(separator: "\n")
-        if let expression = try? NSRegularExpression(pattern: "(?<=[.!?] )\\p{Ll}") {
-            for match in expression.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
-                if let range = Range(match.range, in: text) { text.replaceSubrange(range, with: text[range].uppercased()) }
-            }
-        }
-        if style != .casual, let last = text.last, last.isLetter || last.isNumber { text += "." }
+        for (marker, original) in protected.spans { text = text.replacingOccurrences(of: marker, with: original) }
         return text
     }
-    private func capitalize(_ text: String) -> String {
-        guard let first = text.first else { return text }
-        return first.uppercased() + text.dropFirst()
+
+    private func capitalizeSentences(_ value: String) -> String {
+        var text = value
+        let pattern = "(^|[.!?][ \\t]+|\\n)(\\p{Ll}[\\p{L}\\p{N}_]*)"
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return text }
+        for match in expression.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
+            guard let range = Range(match.range(at: 2), in: text) else { continue }
+            let word = String(text[range])
+            // iPhone, eBay, and other deliberately mixed-case names are not sentence-case words.
+            guard !word.dropFirst().contains(where: \.isUppercase), let first = word.first else { continue }
+            text.replaceSubrange(range, with: first.uppercased() + word.dropFirst())
+        }
+        return text
     }
-    private func replace(_ text: String, _ pattern: String, _ replacement: String) -> String {
-        text.replacingOccurrences(of: pattern, with: replacement, options: [.regularExpression, .caseInsensitive])
+
+    private func protectStructuredSpans(_ text: String) -> (text: String, spans: [(String, String)]) {
+        let tick = "\u{0060}"
+        let pattern = "(?s)\(tick){3}.*?\(tick){3}|\(tick)[^\(tick)\\n]+\(tick)"
+            + "|(?i:\\b[a-z][a-z0-9+.-]*://[^\\s<>]+|\\bwww\\.[^\\s<>]+)"
+            + "|(?i:[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,})"
+            + "|(?i:\\b(?:[a-z0-9-]+\\.)+[a-z]{2,}(?::[0-9]+)?(?:[/\\?#][^\\s<>]*)?)"
+            + "|(?<![\\p{L}\\p{N}])(?:~?/|\\.\\.?/|[A-Za-z]:\\\\)[^\\s<>]+"
+            + "|\\b[\\p{L}\\p{N}_.-]+(?:/[\\p{L}\\p{N}_.@+%~-]+)+"
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return (text, []) }
+        var masked = text
+        var spans: [(String, String)] = []
+        let tag = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        for match in expression.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
+            guard let range = Range(match.range, in: masked) else { continue }
+            let marker = "\u{E000}\(tag)X\(spans.count)\u{E001}"
+            spans.append((marker, String(masked[range])))
+            masked.replaceSubrange(range, with: marker)
+        }
+        return (masked, spans)
+    }
+
+    private func replace(_ text: String, _ pattern: String, _ replacement: String, ignoreCase: Bool = false) -> String {
+        let options: String.CompareOptions = ignoreCase ? [.regularExpression, .caseInsensitive] : [.regularExpression]
+        return text.replacingOccurrences(of: pattern, with: replacement, options: options)
     }
 }
 public enum EndpointPolicy {

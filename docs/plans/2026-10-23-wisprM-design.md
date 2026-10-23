@@ -1,23 +1,33 @@
 # wisprM design
 
-## Product behavior
+## Native app and inference boundary
 
-A native menu-bar dictation assistant with an original SwiftUI/AppKit interface. Control–Option–Space captures speech without activating the app. The nonactivating panel shows a microphone meter, elapsed time, and processing state. Captures finish on the second shortcut or automatically at three minutes.
+An original SwiftUI/AppKit menu-bar dictation assistant. Control–Option–Space toggles microphone capture without activating the app. A nonactivating panel displays the isolated, coalesced meter and phase. Capture has a three-minute monotonic/frame budget and meters every channel.
 
-Recognition is local. A persistent, isolated Python worker loads MLX Whisper Tiny or Parakeet TDT 0.6B v3 and accepts JSON-line requests. Users can select compatible model IDs or absolute local model folders; Whisper also offers Tiny, Base, and Small presets. Explicit preparation downloads weights. Subsequent inference uses the resolved local model path. Unloading terminates the worker and releases model memory.
+A persistent Python worker loads local MLX Whisper or Parakeet weights. Startup establishes an owned process group and emits a readiness handshake. Native code verifies the child PID/group against the kernel, bounds JSON lines, owns request continuations/watchdogs, supervises termination, and awaits exit before replacement work. Decoders inherit the worker group.
 
-AVAudioEngine writes a temporary owner-only CAF file, which is removed after processing or cancellation. The app also supports deliberate audio-file import without deleting originals.
+The worker validates file/container and input-size limits, streams 16kHz mono PCM under a decoded-duration budget, and uses inference windows of at most 30 seconds. Whisper consumes arrays; Parakeet consumes owner-only temporary WAV windows. Default model revisions and all runtime dependencies are locked. Cached pinned models load offline first; custom models can specify immutable commits or local folders.
 
-Conservative local formatting runs first. Optional text polishing uses a user-selected model served by Ollama, LM Studio, or a compatible chat-completions endpoint. The default endpoint is loopback. Remote HTTP, URL credentials, and query strings are rejected. Credentials are stored separately in Keychain. Polishing failure preserves local output; the original transcript remains available for comparison.
+## Privacy and output
 
-## Integration boundaries
+Recording preferences snapshot intent but cannot acquire new consent. Live privacy-off overrides the capture snapshot and cancels pending polishing. Endpoint/model editing and discovery cannot overlap an active dictation. Capture, discovery, setup, and polishing have separate task ownership.
 
-The Carbon shortcut is registered once and reports conflicts. Automatic insertion requires Accessibility, the original foreground application, and the original focused field. Secure text fields are excluded. Direct AXSelectedText insertion is preferred; custom editors may use a clipboard/Paste fallback. Every completed transcript is copied to the system clipboard and remains there after insertion. A focus change retains text in the scratchpad and clipboard instead of inserting into a different destination.
+The persistent bounded HTTP client rejects redirects, excessive headers/body size, incomplete generation, tool/refusal responses, and malformed reasoning blocks. Its delegate never retains its owner; shutdown drains requests and invalidates the session. Credentials are bound to normalized scheme/host/effective-port; the former unscoped Keychain account is never reused.
 
-A session identifier rejects late inference results after cancellation. Settings are snapshotted at capture start. History is optional, local, and capped at 30 entries. The app has no screen capture, camera access, analytics, or cloud transcription.
+Local cleanup preserves structured spans and mixed-case names. Spoken command interpretation requires explicit opt-in. Each new transcript generation resets original-view state.
 
-## Delivery
+Completed text remains on the clipboard by user request. Direct AX insertion requires the original foreground process/field, readable unprotected editable attributes, settable selected text, and bounded AX messaging on the exact objects used. Global Paste synthesis is excluded. Uncertain/custom fields use deliberate manual Paste.
 
-Swift Package Manager builds the native app and a small validation CLI. A build script generates original artwork, creates an app bundle, and signs it ad hoc. The MLX runtime is installed separately in the user's Application Support directory. The supported target is Apple Silicon with macOS 14 or later.
+## Data ownership and termination
 
-Verification covers formatter and network policy behavior, worker errors and framing, real speech inference, local text polishing, and the packaged native app's audio-import pipeline. Microphone and cross-app automation verification require user-approved macOS privacy permissions. Distribution notarization and Developer ID signing are separate from the local build.
+LocalDataStore explicitly tracks captured recording URLs, recognizes only ENOENT as already deleted, retains failed-deletion ownership, and cleans known worker chunks. History mutation reports actual filesystem success. Imported originals are never owned or deleted.
+
+Normal termination returns terminateLater, cancels owned work, invalidates networking, awaits worker/decoder exit and task cleanup, then replies to AppKit. Cleanup errors cancel normal termination and remain visible. Crash artifacts are handled during the next launch.
+
+## Delivery and verification
+
+Swift Package Manager builds an Apple Silicon/macOS14+ app plus isolated unit/workflow tests. Packaging creates original artwork and an ad hoc signed local bundle.
+
+Regression coverage includes live consent revocation, independent cancellation, synthetic clipboard completion, quit cleanup, storage failures, all-channel audio, deadlines, process descendants/watchdogs, response bounds, scoped origins, malformed output, text integrity, preference migration, and format limits. Tests avoid user audio/clipboard/Keychain. Real cached Whisper and Parakeet inference is checked offline on generated speech.
+
+Native Accessibility behavior across real third-party applications, physical input-device coverage, Intel support, production distribution signing/notarization, and benchmark claims remain outside the automated verification boundary.

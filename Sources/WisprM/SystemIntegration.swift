@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Carbon
+import WisprCore
 
 @MainActor final class GlobalHotKey {
     private var reference: EventHotKeyRef?
@@ -41,6 +42,7 @@ import Carbon
     private func focusedElement(pid: pid_t) -> AXUIElement? {
         var value: CFTypeRef?
         let app = AXUIElementCreateApplication(pid)
+        guard AXUIElementSetMessagingTimeout(app, 0.3) == .success else { return nil }
         guard AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &value) == .success,
               let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
         return (value as! AXUIElement)
@@ -63,25 +65,28 @@ import Carbon
             return "The focused field changed. Your text remains in wisprM."
         }
         guard let focused else { return "No editable field was found. Your text remains in wisprM." }
-        var roleValue: CFTypeRef?
-        _ = AXUIElementCopyAttributeValue(focused, kAXRoleAttribute as CFString, &roleValue)
-        let role = roleValue as? String ?? ""
-        var subrole: CFTypeRef?
-        _ = AXUIElementCopyAttributeValue(focused, kAXSubroleAttribute as CFString, &subrole)
-        guard role != "AXSecureTextField", subrole as? String != "AXSecureTextField" else { return "Secure fields are excluded. Your text remains in wisprM." }
-        if AXUIElementSetAttributeValue(focused, kAXSelectedTextAttribute as CFString, text as CFTypeRef) == .success {
+        guard AXUIElementSetMessagingTimeout(focused, 0.3) == .success else {
+            return "The field could not be checked within a bounded request. Use Command–V."
+        }
+        var roleValue: CFTypeRef?, subroleValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(focused, kAXRoleAttribute as CFString, &roleValue) == .success,
+              AXUIElementCopyAttributeValue(focused, kAXSubroleAttribute as CFString, &subroleValue) == .success,
+              InsertionEligibility.allows(role: roleValue as? String, subrole: subroleValue as? String) else {
+            return "The field could not be verified as editable and unprotected. Use Command–V to paste."
+        }
+        var settable: DarwinBoolean = false
+        guard AXUIElementIsAttributeSettable(focused, kAXSelectedTextAttribute as CFString, &settable) == .success,
+              settable.boolValue else { return "This editor requires manual Paste. Use Command–V." }
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == target.application.processIdentifier,
+              let current = focusedElement(pid: target.application.processIdentifier), CFEqual(current, original) else {
+            return "Focus changed. Use Command–V in the intended field."
+        }
+        guard AXUIElementSetMessagingTimeout(original, 0.3) == .success else {
+            return "Direct insertion could not be bounded safely. Use Command–V."
+        }
+        if AXUIElementSetAttributeValue(original, kAXSelectedTextAttribute as CFString, text as CFTypeRef) == .success {
             return "Inserted into \(target.name)"
         }
-        // Apps with custom editors often accept keyboard paste but not AXSelectedText.
-        let pasteboard = NSPasteboard.general
-        guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: true),
-              let up = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: false) else { return "Could not send Paste. Your text remains in wisprM." }
-        pasteboard.clearContents()
-        guard pasteboard.setString(text, forType: .string) else {
-            return "Could not copy text for Paste. Your text remains in wisprM."
-        }
-        down.flags = .maskCommand; up.flags = .maskCommand
-        down.post(tap: .cghidEventTap); up.post(tap: .cghidEventTap)
-        return "Sent Paste to \(target.name)"
+        return "The editor rejected direct insertion. Use Command–V to paste."
     }
 }

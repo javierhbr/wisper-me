@@ -55,48 +55,33 @@ import Carbon
         guard permitted else { return "Text is ready. Enable Accessibility to insert it into other apps." }
         guard !target.application.isTerminated,
               NSWorkspace.shared.frontmostApplication?.processIdentifier == target.application.processIdentifier else {
-            return "Focus changed. Your text is ready to copy; nothing was sent."
+            return "Focus changed. Your text remains in wisprM; nothing was sent."
         }
         let focused = focusedElement(pid: target.application.processIdentifier)
-        guard let original = target.element else { return "The original field was unavailable. Your text is ready to copy." }
+        guard let original = target.element else { return "The original field was unavailable. Your text remains in wisprM." }
         if let focused, !CFEqual(original, focused) {
-            return "The focused field changed. Your text is ready to copy."
+            return "The focused field changed. Your text remains in wisprM."
         }
-        guard let focused else { return "No editable field was found. Your text is ready to copy." }
+        guard let focused else { return "No editable field was found. Your text remains in wisprM." }
         var roleValue: CFTypeRef?
         _ = AXUIElementCopyAttributeValue(focused, kAXRoleAttribute as CFString, &roleValue)
         let role = roleValue as? String ?? ""
         var subrole: CFTypeRef?
         _ = AXUIElementCopyAttributeValue(focused, kAXSubroleAttribute as CFString, &subrole)
-        guard role != "AXSecureTextField", subrole as? String != "AXSecureTextField" else { return "Secure fields are excluded. Your text is ready to copy." }
+        guard role != "AXSecureTextField", subrole as? String != "AXSecureTextField" else { return "Secure fields are excluded. Your text remains in wisprM." }
         if AXUIElementSetAttributeValue(focused, kAXSelectedTextAttribute as CFString, text as CFTypeRef) == .success {
             return "Inserted into \(target.name)"
         }
         // Apps with custom editors often accept keyboard paste but not AXSelectedText.
         let pasteboard = NSPasteboard.general
-        let saved = (pasteboard.pasteboardItems ?? []).map { item in
-            item.types.compactMap { type -> (NSPasteboard.PasteboardType, Data)? in
-                guard let data = item.data(forType: type) else { return nil }; return (type, data)
-            }
-        }
         guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: true),
-              let up = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: false) else { return "Could not send Paste. Your text is ready to copy." }
+              let up = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: false) else { return "Could not send Paste. Your text remains in wisprM." }
         pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-        let change = pasteboard.changeCount
+        guard pasteboard.setString(text, forType: .string) else {
+            return "Could not copy text for Paste. Your text remains in wisprM."
+        }
         down.flags = .maskCommand; up.flags = .maskCommand
         down.post(tap: .cghidEventTap); up.post(tap: .cghidEventTap)
-        Task {
-            try? await Task.sleep(nanoseconds: 900_000_000)
-            guard pasteboard.changeCount == change else { return }
-            pasteboard.clearContents()
-            let items = saved.map { representations in
-                let item = NSPasteboardItem()
-                for (type, data) in representations { item.setData(data, forType: type) }
-                return item
-            }
-            if !items.isEmpty { pasteboard.writeObjects(items) }
-        }
         return "Sent Paste to \(target.name)"
     }
 }

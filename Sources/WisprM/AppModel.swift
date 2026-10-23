@@ -167,8 +167,11 @@ enum Page: String, CaseIterable { case dictate = "Dictate", models = "Models", h
                 guard session == token else { return }
                 transcript = text; phase = .idle
                 if preferences.keepHistory { saveToHistory(text, engine: preferences.engine.rawValue) }
-                if preferences.autoInsert, let target { note = inserter.insert(text, into: target) }
-                else { note = "Your text is ready. Copy it below, or dictate from another application's text field." }
+                let copied = copy(text)
+                if preferences.autoInsert, let target {
+                    let insertion = inserter.insert(text, into: target)
+                    note = insertion + (copied ? " · Copied to clipboard. Paste again with Command–V." : " · Clipboard copy failed; use Copy to retry.")
+                }
                 hideHUD?()
             } catch {
                 guard session == token else { return }
@@ -183,11 +186,14 @@ enum Page: String, CaseIterable { case dictate = "Dictate", models = "Models", h
         if phase == .transcribing || runtime.busy { runtime.shutdown() }
         phase = .idle; meter = 0; note = "Cancelled. Nothing was inserted."; hideHUD?()
     }
-    func copy(_ text: String? = nil) {
+    @discardableResult
+    func copy(_ text: String? = nil) -> Bool {
         let text = text ?? transcript
-        guard !text.isEmpty else { return }
-        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
-        note = "Copied to clipboard"
+        guard !text.isEmpty else { return false }
+        NSPasteboard.general.clearContents()
+        let copied = NSPasteboard.general.setString(text, forType: .string)
+        note = copied ? "Copied to clipboard. Paste anywhere with Command–V." : "Text is ready, but clipboard copy failed. Use Copy to retry."
+        return copied
     }
     func refreshPermissions() { accessibility = inserter.permitted }
     func clearHistory() {

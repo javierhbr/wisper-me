@@ -4,6 +4,8 @@ Verified on Apple Silicon, macOS 26.6.2, Swift 6.3.2.
 
 ## Completed
 
+- Automatic clipboard copy after transcription was verified in the packaged app. Command–V pasted the completed transcript without clicking Copy, including after the former clipboard-restoration delay.
+
 - Native debug compilation and release app packaging.
 - Ad hoc code-signature verification.
 - Swift unit tests for formatting, spoken punctuation, paragraphs, bullets, endpoint restrictions, polishing requests, and preservation of text when polishing returns empty output.
@@ -23,7 +25,7 @@ The single synthetic passage is a functional check, not an accuracy or latency b
 ## Not yet verified
 
 - Live microphone capture on this installation: the user has not granted microphone access for this new app.
-- Actual insertion into a different application, secure-field exclusion at runtime, and clipboard restoration across real applications: Accessibility approval is pending.
+- Actual insertion into a different application, secure-field exclusion at runtime, across real applications: Accessibility approval is pending.
 - Broad compatibility with every Mac application or language.
 - Launch-at-login behavior after logout/restart.
 - Intel Macs, App Store distribution, Developer ID signing, or notarization.

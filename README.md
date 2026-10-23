@@ -51,7 +51,7 @@ Polishing is off by default. The app sends transcript text to the configured end
 - Recognition runs after finishing capture; this build does not show streaming partial transcripts.
 - Local cleanup handles filler words, spacing, spoken English punctuation, paragraphs, and bullet formatting.
 - Automatic insertion checks the original application and focused field. If focus changes, output stays in wisprM for copying. Secure fields are excluded. Custom editors can use a clipboard/Paste fallback.
-- The clipboard is restored after fallback Paste only if it has not since changed.
+- Every completed transcript is copied to the clipboard, whether automatic insertion is enabled or not. The transcript remains available for Command–V until you copy something else.
 - Accessibility permission is necessary for cross-app insertion. Individual applications can reject automation; universal compatibility has not been established.
 - Temporary microphone audio is written with owner-only permissions and deleted after processing or cancellation. Crash leftovers are removed on the next launch.
 - Local history is opt-in, limited to 30 items, and deletable.

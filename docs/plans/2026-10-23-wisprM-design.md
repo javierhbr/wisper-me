@@ -12,7 +12,7 @@ Conservative local formatting runs first. Optional text polishing uses a user-se
 
 ## Integration boundaries
 
-The Carbon shortcut is registered once and reports conflicts. Automatic insertion requires Accessibility, the original foreground application, and the original focused field. Secure text fields are excluded. Direct AXSelectedText insertion is preferred; custom editors may use a clipboard-preserving Paste fallback. A focus change retains text in the scratchpad instead of inserting into a different destination.
+The Carbon shortcut is registered once and reports conflicts. Automatic insertion requires Accessibility, the original foreground application, and the original focused field. Secure text fields are excluded. Direct AXSelectedText insertion is preferred; custom editors may use a clipboard/Paste fallback. Every completed transcript is copied to the system clipboard and remains there after insertion. A focus change retains text in the scratchpad and clipboard instead of inserting into a different destination.
 
 A session identifier rejects late inference results after cancellation. Settings are snapshotted at capture start. History is optional, local, and capped at 30 entries. The app has no screen capture, camera access, analytics, or cloud transcription.
 

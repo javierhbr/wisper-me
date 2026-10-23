@@ -5,10 +5,12 @@ Verified on Apple Silicon with macOS26.6.2 and Swift6.3.2.
 ## Automated checks
 
 - **51 Swift tests:** native lifecycle/audio, Core HTTP and privacy policies, workflow cancellation/cleanup, storage, migration, and formatting.
-- **15 Python checks:** bounded decoding, private temporary audio, worker protocol/model pins/cache-first loading, and installer process cleanup.
+- **25 Python checks:** bounded decoding, private temporary audio, worker protocol/model pins/cache-first loading, installer process cleanup, and local app-installation safeguards.
 - Actual cached **Whisper Tiny** and **Parakeet0.6B v3** inference against generated speech, with HF_HUB_OFFLINE=1. No model downloads. The short sample retained WER0.1333 for Whisper and0.0 for Parakeet; this is a functional check, not an accuracy/latency benchmark.
 - Fully hashed dependency lock dry-run against the existing verified runtime. All62 packages were resolved from official package metadata; four default model revisions are immutable.
 - Release app compilation and ad hoc code-signature verification after bundled-worker startup. Bytecode writes inside the app are disabled and regression-tested.
+- Makefile build/test/verify targets passed. The actual install target was verified in an isolated Applications directory containing spaces; copied signatures and binary identity matched, and no staging files remained.
+- Nine local-installer regressions cover updates, unrelated/running app protection, staging verification, rollback/retained backups, symlinks and safe build-output cleanup.
 - Bounded HTTP text client previously checked against local Qwen2.5 1.5B; the final client is also checked again during release validation.
 
 Tests use isolated HOME/TMPDIR/recording paths and fixture processes. Workflow checks inject a synthetic clipboard sink and empty credential provider; they never record audio, alter the real clipboard, or read user credentials.

@@ -13,6 +13,8 @@ public actor SpeechRuntime {
     private var whisper: WhisperKit?
     private var parakeet: AsrManager?
     private var loaded: String?
+    private var preparationGeneration = UUID()
+    private var pendingParakeetLoad: UUID?
 
     /// Finds complete cached weights without creating a downloader or choosing another model.
     public static func cachedFolder(_ choice: SpeechChoice, directory: URL, existing: URL?) -> URL? {
@@ -44,6 +46,9 @@ public actor SpeechRuntime {
 
     public func prepare(_ choice: SpeechChoice, directory: URL, existing: URL?, allowDownload: Bool = true, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         await unload()
+        let generation = UUID()
+        preparationGeneration = generation
+        try Task.checkCancellation()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let cached = Self.cachedFolder(choice, directory: directory, existing: existing)
         let folder: URL
@@ -62,25 +67,41 @@ public actor SpeechRuntime {
                 tokenizerFolder: directory.appendingPathComponent("Tokenizers"),
                 computeOptions: ModelComputeOptions(melCompute: .cpuOnly, audioEncoderCompute: .cpuAndNeuralEngine, textDecoderCompute: .cpuAndNeuralEngine), verbose: ProcessInfo.processInfo.arguments.contains("--integration-audio"),
                 prewarm: false, load: true, download: false)
-            do { whisper = try await WhisperKit(configuration) }
+            do {
+                let engine = try await WhisperKit(configuration)
+                try checkPreparation(generation)
+                whisper = engine
+            }
+            catch is CancellationError { throw CancellationError() }
             catch { throw MobileFailure.message("Whisper initialization failed: \(error.localizedDescription)") }
         case .parakeet:
-            folder = cached
-                ?? directory.appendingPathComponent(AsrModels.defaultCacheDirectory(for: .v3).lastPathComponent)
-            let models: AsrModels
-            if cached != nil {
-                models = try AsrModels.loadLocal(from: folder, version: .v3, encoderPrecision: .int8)
-            } else {
-                guard allowDownload else { throw MobileFailure.message("The saved speech model is missing or incomplete. Download it again in Models.") }
-                models = try await AsrModels.downloadAndLoad(to: folder, version: .v3, encoderPrecision: .int8,
-                    progressHandler: { progress($0.fractionCompleted) })
+            guard pendingParakeetLoad == nil else {
+                throw MobileFailure.message("The previous Parakeet load is still ending. Choose Whisper, or close wisprM from the app switcher before retrying Parakeet.")
             }
-            try Task.checkCancellation()
+            folder = cached ?? directory.appendingPathComponent(AsrModels.defaultCacheDirectory(for: .v3).lastPathComponent)
+            if cached == nil {
+                guard allowDownload else { throw MobileFailure.message("The saved speech model is missing or incomplete. Download it again in Models.") }
+                _ = try await AsrModels.download(to: folder, version: .v3, encoderPrecision: .int8,
+                    progressHandler: { progress($0.fractionCompleted) })
+                try checkPreparation(generation)
+            }
+            let token = UUID()
+            pendingParakeetLoad = token
+            let models: AsrModels
+            do {
+                models = try await PreparationDeadline.run(timeout: .seconds(90), onFinished: { [weak self] in
+                    Task { await self?.finishParakeetLoad(token) }
+                }) { try await ParakeetLocalModels.load(from: folder, progress: progress) }
+            } catch is PreparationDeadlineError {
+                throw MobileFailure.message("Parakeet preparation timed out. Choose Whisper, or close wisprM from the app switcher before retrying Parakeet.")
+            }
+            try checkPreparation(generation)
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)
+            try checkPreparation(generation)
             parakeet = manager
         }
-        try Task.checkCancellation()
+        try checkPreparation(generation)
         loaded = choice.id
         var mutable = directory
         var values = URLResourceValues(); values.isExcludedFromBackup = true
@@ -107,8 +128,19 @@ public actor SpeechRuntime {
         throw MobileFailure.message("The speech model is not available.")
     }
 
+    private func checkPreparation(_ generation: UUID) throws {
+        try Task.checkCancellation()
+        guard preparationGeneration == generation else { throw CancellationError() }
+    }
+    private func finishParakeetLoad(_ token: UUID) {
+        if pendingParakeetLoad == token { pendingParakeetLoad = nil }
+    }
     public func unload() async {
-        await parakeet?.cleanup(); parakeet = nil; whisper = nil; loaded = nil
+        preparationGeneration = UUID()
+        let old = parakeet
+        parakeet = nil; whisper = nil; loaded = nil
+        // Only the native worker clears its reservation, including after timeout.
+        await old?.cleanup()
     }
 }
 

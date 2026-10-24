@@ -31,6 +31,7 @@ import WisprMobileInference
     private let textRuntime = TextRuntime()
     private let server = Polisher()
     private var work: Task<Void, Never>?
+    private var preparationProgressID = UUID()
     private var polishTask: Task<String, Error>?
     private var recordingPreferences: MobilePreferences?
     private var needsCopy = false
@@ -88,12 +89,17 @@ import WisprMobileInference
             do { try await prepareSpeech(choice, allowDownload: allowDownload) }
             catch {
                 await speech.unload(); loadedID = nil
-                if error is CancellationError { message = "Model loading cancelled." }
+                if error is CancellationError || Task.isCancelled { message = "Model loading cancelled." }
                 else { self.error = error.localizedDescription }
             }
         }
     }
     private func prepareSpeech(_ choice: SpeechChoice, allowDownload: Bool) async throws {
+        let progressID = UUID()
+        preparationProgressID = progressID
+        defer {
+            if preparationProgressID == progressID { preparationProgressID = UUID() }
+        }
         let cached = SpeechRuntime.cachedFolder(choice, directory: MobilePaths.models, existing: receipts[choice.id]?.folder)
         if choice.repository == "local", cached == nil {
             throw MobileFailure.message("This imported model is missing or incomplete. Import its folder again from Files.")
@@ -106,7 +112,11 @@ import WisprMobileInference
         await textRuntime.unload(); textModelID = nil
         let folder = try await speech.prepare(choice, directory: MobilePaths.models, existing: cached,
             allowDownload: allowDownload, progress: { [weak self] value in
-                Task { @MainActor in if self?.phase == .preparing { self?.progress = value } }
+                Task { @MainActor in
+                    guard let self, self.phase == .preparing, self.preparationProgressID == progressID else { return }
+                    self.progress = value
+                    if cached != nil { self.message = "Preparing cached \(choice.name) · \(Int(value * 100))%" }
+                }
             })
         try Task.checkCancellation()
         let bytes: Int64
@@ -275,6 +285,7 @@ import WisprMobileInference
         appleIntelligenceStatus = AppleIntelligencePolisher.availability(language: preferences.language)
     }
     func cancel() {
+        preparationProgressID = UUID()
         if phase == .recording { recorder.cancel(); phase = .idle; message = "Recording cancelled."; return }
         guard busy else { return }
         phase = .cancelling; message = "Cancelling. Waiting for the current model operation to finish…"
@@ -404,7 +415,9 @@ import WisprMobileInference
         guard ProcessInfo.processInfo.arguments.contains("--integration-restore-check") else { return }
         let report: [String: Any] = ["selectedModel": preferences.modelID, "loadedModel": loadedID ?? "",
             "ready": ready, "downloadAllowed": integrationSpeechDownloadAllowed,
-            "cachedModel": cachedSpeechFolder != nil, "canDictate": canDictate, "error": error ?? ""]
+            "cachedModel": cachedSpeechFolder != nil, "canDictate": canDictate, "error": error ?? "",
+            "lowPowerMode": ProcessInfo.processInfo.isLowPowerModeEnabled,
+            "thermalState": ProcessInfo.processInfo.thermalState.rawValue]
         let file = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents/integration-restore.json")
         if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: file, options: .atomic)
@@ -445,7 +458,9 @@ import WisprMobileInference
             "error": error ?? "", "seconds": Date().timeIntervalSince(started), "sharedContainer": MobilePaths.group != nil,
             "loadedModel": loadedID ?? "", "polishingProvider": preferences.polishMode.rawValue,
             "polishingCompleted": integrationPolishingCompleted, "unpolishedText": integrationUnpolishedText, "canDictate": canDictate,
-            "appleIntelligenceAvailable": appleIntelligenceStatus.isAvailable, "appleIntelligenceStatus": appleIntelligenceStatus.message]
+            "appleIntelligenceAvailable": appleIntelligenceStatus.isAvailable, "appleIntelligenceStatus": appleIntelligenceStatus.message,
+            "lowPowerMode": ProcessInfo.processInfo.isLowPowerModeEnabled,
+            "thermalState": ProcessInfo.processInfo.thermalState.rawValue]
         let output = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents/integration-result.json")
         if let data = try? JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]) { try? data.write(to: output, options: .atomic) }
     }

@@ -8,7 +8,7 @@ import AppIntents
         WindowGroup {
             MobileRootView(model: model)
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active { model.copyWhenActive() } else { model.suspendLocalPolishing() }
+                    if phase == .active { model.copyWhenActive(); model.refreshAppleIntelligenceAvailability() } else { model.suspendLocalPolishing() }
                 }
                 .onOpenURL { url in if url.scheme == "wisprm" { model.tab = 0 } }
                 .onReceive(NotificationCenter.default.publisher(for: .init("com.wisprm.mobile.openDictation"))) { _ in model.tab = 0 }

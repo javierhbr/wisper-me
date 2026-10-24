@@ -152,7 +152,14 @@ struct MobileModelsView: View {
             Section("Optional text polishing") {
                 Picker("Polishing", selection: $model.preferences.polishMode) { ForEach(PolishMode.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
                     .disabled(model.busy && model.preferences.polishMode == .off)
-                if model.preferences.polishMode == .local {
+                if model.preferences.polishMode == .appleIntelligence {
+                    Label(model.appleIntelligenceStatus.message,
+                          systemImage: model.appleIntelligenceStatus.isAvailable ? "checkmark.circle" : "info.circle")
+                        .font(.callout).foregroundStyle(model.appleIntelligenceStatus.isAvailable ? MobileTheme.green : .secondary)
+                    Text("Uses Apple's on-device model with no separate model download in wisprM. Keep the app open while polishing. If it is unavailable, your locally cleaned transcript is kept.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Button("Check availability", action: model.refreshAppleIntelligenceAvailability)
+                } else if model.preferences.polishMode == .local {
                     #if targetEnvironment(simulator)
                     Text("On-device MLX polishing requires a physical iPhone. Simulator supports speech recognition and deterministic formatting; its Metal heaps are incompatible with MLX.").font(.footnote).foregroundStyle(.orange)
                     #endif

@@ -30,7 +30,8 @@ public struct SpeechChoice: Codable, Identifiable, Equatable, Sendable {
 }
 
 public enum PolishMode: String, Codable, CaseIterable, Sendable {
-    case off = "Local cleanup only", local = "On-device language model", server = "Model server"
+    case off = "Local cleanup only", appleIntelligence = "Apple Intelligence", local = "On-device language model", server = "Model server"
+    public var requiresForeground: Bool { self == .local || self == .appleIntelligence }
 }
 
 public struct MobilePreferences: Codable, Equatable, Sendable {
@@ -84,6 +85,7 @@ public enum LocalPolishingOutput {
 public enum MobilePolishingConsent {
     public static func allows(captured: MobilePreferences, live: MobilePreferences) -> Bool {
         guard captured.polishMode != .off, captured.polishMode == live.polishMode else { return false }
+        if captured.polishMode == .appleIntelligence { return true }
         if captured.polishMode == .local { return captured.localTextModel == live.localTextModel && captured.localTextFolder == live.localTextFolder }
         return PolishingConsent.allows(capturedEnabled: true, liveEnabled: true,
             capturedEndpoint: captured.serverEndpoint, liveEndpoint: live.serverEndpoint)

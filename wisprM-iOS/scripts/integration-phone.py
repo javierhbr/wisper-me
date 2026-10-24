@@ -17,7 +17,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--device", required=True, help="CoreDevice identifier or phone name")
     parser.add_argument("--model", choices=["whisper-tiny", "whisper-base", "whisper-small", "parakeet-v3"], default="whisper-tiny")
-    parser.add_argument("--polish-model")
+    polishing = parser.add_mutually_exclusive_group()
+    polishing.add_argument("--polish-model")
+    polishing.add_argument("--apple-intelligence", action="store_true")
+    parser.add_argument("--phrase", default="The quick brown fox jumps over the lazy dog.")
+    parser.add_argument("--language", default="auto")
     parser.add_argument("--app", type=Path, default=root / ".build/Phone/Build/Products/Debug-iphoneos/wisprM.app")
     args = parser.parse_args()
     with (args.app / "Info.plist").open("rb") as file:
@@ -25,7 +29,8 @@ def main():
     build = root / ".build"
     build.mkdir(exist_ok=True)
     fixture = build / "phone-generated-speech.caf"
-    report = build / ("phone-" + args.model + ("-polished" if args.polish_model else "") + ".json")
+    suffix = "-apple-intelligence" if args.apple_intelligence else "-polished" if args.polish_model else ""
+    report = build / ("phone-" + args.model + suffix + ".json")
     report.write_text("{}\n")
 
     def command(*arguments, check=True):
@@ -43,7 +48,7 @@ def main():
                       "--domain-identifier", bundle, "--source", str(source),
                       "--destination", str(destination), check=check)
 
-    command("/usr/bin/say", "-o", str(fixture), "The quick brown fox jumps over the lazy dog.")
+    command("/usr/bin/say", "-o", str(fixture), args.phrase)
     copy("to", fixture, "Documents/integration-fixture.caf")
     # Clear the old report so a previous test cannot count as this test's result.
     copy("to", report, "Documents/integration-result.json")
@@ -52,6 +57,9 @@ def main():
                  "--integration-audio", "integration-fixture.caf", "--integration-model", args.model]
     if args.polish_model:
         arguments += ["--integration-polish-model", args.polish_model]
+    if args.apple_intelligence:
+        arguments += ["--integration-apple-intelligence"]
+    arguments += ["--integration-language", args.language]
     command(*arguments)
     print("Waiting for real iPhone model download/load and transcription…", flush=True)
     deadline = time.monotonic() + 1200
@@ -66,6 +74,8 @@ def main():
                 print(json.dumps(result, indent=2, ensure_ascii=False), flush=True)
                 if result.get("error") or not result.get("text", "").strip():
                     raise SystemExit("Physical-phone inference failed; see the report above.")
+                if (args.apple_intelligence or args.polish_model) and not result.get("polishingCompleted"):
+                    raise SystemExit("The transcript was preserved, but the requested polishing did not complete.")
                 print("Real iPhone transcription passed.", flush=True)
                 return
         time.sleep(3)

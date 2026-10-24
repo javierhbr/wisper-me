@@ -2,6 +2,23 @@ import XCTest
 @testable import WisprMobileCore
 
 final class DomainTests: XCTestCase {
+    func testAppleIntelligenceConsentCannotSwitchProviderOrAcquireConsentAfterCapture() throws {
+        let apple = try XCTUnwrap(PolishMode(rawValue: "Apple Intelligence"))
+        var captured = MobilePreferences(), live = MobilePreferences()
+        live.polishMode = apple
+        XCTAssertFalse(MobilePolishingConsent.allows(captured: captured, live: live))
+        captured = live
+        live.serverEndpoint = "https://unrelated.example/v1/chat/completions"
+        live.localTextModel = "unrelated/model"
+        XCTAssertTrue(MobilePolishingConsent.allows(captured: captured, live: live))
+        for replacement in [PolishMode.off, .local, .server] {
+            live.polishMode = replacement
+            XCTAssertFalse(MobilePolishingConsent.allows(captured: captured, live: live))
+        }
+        let restored = try JSONDecoder().decode(MobilePreferences.self, from: JSONEncoder().encode(captured))
+        XCTAssertEqual(restored.polishMode, apple)
+        XCTAssertEqual(MobilePreferences().polishMode, .off)
+    }
     func testPolishingCannotAcquireNewConsentOrSwitchModelsDuringCapture() {
         var captured = MobilePreferences(), live = MobilePreferences()
         live.polishMode = .local

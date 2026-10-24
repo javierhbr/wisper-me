@@ -13,11 +13,13 @@ import WisprMobileInference
         if oldValue.polishMode != preferences.polishMode || oldValue.serverEndpoint != preferences.serverEndpoint {
             polishTask?.cancel()
         }
+        if oldValue.language != preferences.language { refreshAppleIntelligenceAvailability() }
     } }
     @Published private(set) var phase = Phase.idle
     @Published private(set) var loadedID: String?
     @Published private(set) var textModelID: String?
     @Published private(set) var progress: Double = 0
+    @Published private(set) var appleIntelligenceStatus = AppleIntelligencePolisher.availability(language: "auto")
     @Published var transcript = ""
     @Published var message = "Choose a local model to begin."
     @Published var error: String?
@@ -33,6 +35,10 @@ import WisprMobileInference
     private var recordingPreferences: MobilePreferences?
     private var needsCopy = false
     private var isIntegrationRun = false
+    #if DEBUG
+    private var integrationUnpolishedText = ""
+    private var integrationPolishingCompleted = false
+    #endif
     private var backgroundTask = UIBackgroundTaskIdentifier.invalid
     var busy: Bool { phase != .idle }
     var ready: Bool { loadedID == preferences.speechChoice.id }
@@ -42,6 +48,7 @@ import WisprMobileInference
         defaults = store
         preferences = store.data(forKey: "mobile.preferences.v1")
             .flatMap { try? JSONDecoder().decode(MobilePreferences.self, from: $0) } ?? MobilePreferences()
+        refreshAppleIntelligenceAvailability()
         receipts = store.data(forKey: "mobile.models.v1")
             .flatMap { try? JSONDecoder().decode([String: ModelReceipt].self, from: $0) } ?? [:]
         do {
@@ -156,13 +163,22 @@ import WisprMobileInference
                 guard !text.isEmpty else { throw MobileFailure.message("No speech was recognized. Try a clearer or longer recording.") }
                 text = TextFormatter().format(text, style: snapshot.style,
                     locale: snapshot.language == "auto" ? "und" : snapshot.language, interpretCommands: snapshot.spokenCommands)
-                if snapshot.polishMode == .local && UIApplication.shared.applicationState != .active && mayPolish(snapshot) {
+                #if DEBUG
+                if isIntegrationRun { integrationUnpolishedText = text; integrationPolishingCompleted = false }
+                #endif
+                if snapshot.polishMode.requiresForeground && UIApplication.shared.applicationState != .active && mayPolish(snapshot) {
                     self.error = "On-device polishing requires wisprM to remain open. Local cleanup was kept."
                 }
-                if mayPolish(snapshot) && (snapshot.polishMode != .local || UIApplication.shared.applicationState == .active) {
+                if mayPolish(snapshot) && (!snapshot.polishMode.requiresForeground || UIApplication.shared.applicationState == .active) {
                     phase = .polishing; message = "Polishing your words…"
                     let original = text
                     let polishing = Task<String, Error> {
+                        if snapshot.polishMode == .appleIntelligence {
+                            await speech.unload(); loadedID = nil
+                            await textRuntime.unload(); textModelID = nil
+                            return try await AppleIntelligencePolisher.polish(original,
+                                language: snapshot.language, style: snapshot.style.rawValue)
+                        }
                         if snapshot.polishMode == .local {
                             await speech.unload(); loadedID = nil
                             try await textRuntime.prepare(id: snapshot.localTextModel, localDirectory: localTextDirectory(snapshot), cacheDirectory: MobilePaths.models.appendingPathComponent("Text")) { _ in }
@@ -176,7 +192,15 @@ import WisprMobileInference
                     polishTask = polishing
                     let polishResult = await polishing.result
                     if snapshot.polishMode == .local { await textRuntime.unload(); textModelID = nil }
-                    do { let result = try polishResult.get(); if mayPolish(snapshot) { text = result } }
+                    do {
+                        let result = try polishResult.get()
+                        if mayPolish(snapshot) {
+                            text = result
+                            #if DEBUG
+                            if isIntegrationRun { integrationPolishingCompleted = true }
+                            #endif
+                        }
+                    }
                     catch {
                         try Task.checkCancellation()
                         if mayPolish(snapshot) { self.error = "Polishing was unavailable; local cleanup was kept. " + error.localizedDescription }
@@ -219,7 +243,10 @@ import WisprMobileInference
         if needsCopy && !isIntegrationRun && UIApplication.shared.applicationState == .active { copy() }
     }
     func suspendLocalPolishing() {
-        if phase == .polishing && preferences.polishMode == .local { polishTask?.cancel() }
+        if phase == .polishing && preferences.polishMode.requiresForeground { polishTask?.cancel() }
+    }
+    func refreshAppleIntelligenceAvailability() {
+        appleIntelligenceStatus = AppleIntelligencePolisher.availability(language: preferences.language)
     }
     func cancel() {
         if phase == .recording { recorder.cancel(); phase = .idle; message = "Recording cancelled."; return }
@@ -354,10 +381,14 @@ import WisprMobileInference
         let idleTimerWasDisabled = UIApplication.shared.isIdleTimerDisabled
         UIApplication.shared.isIdleTimerDisabled = true
         defer { UIApplication.shared.isIdleTimerDisabled = idleTimerWasDisabled }
-        preferences.polishMode = .off; preferences.historyEnabled = false
+        preferences.polishMode = .off; preferences.historyEnabled = false; preferences.language = "auto"
+        if let language = args.firstIndex(of: "--integration-language"), language + 1 < args.count {
+            preferences.language = args[language + 1]
+        }
         if let polishing = args.firstIndex(of: "--integration-polish-model"), polishing + 1 < args.count {
             preferences.localTextModel = args[polishing + 1]; preferences.localTextFolder = nil; preferences.polishMode = .local
         }
+        if args.contains("--integration-apple-intelligence") { preferences.polishMode = .appleIntelligence }
         defer { preferences.polishMode = .off }
         if let engine = args.firstIndex(of: "--integration-model"), engine + 1 < args.count { preferences.modelID = args[engine + 1] }
         let started = Date()
@@ -367,9 +398,12 @@ import WisprMobileInference
             process(file, snapshot: preferences)
             if let current = work { await current.value }
         }
+        refreshAppleIntelligenceAvailability()
         let result: [String: Any] = ["model": preferences.modelID, "text": transcript,
             "error": error ?? "", "seconds": Date().timeIntervalSince(started), "sharedContainer": MobilePaths.group != nil,
-            "loadedModel": loadedID ?? ""]
+            "loadedModel": loadedID ?? "", "polishingProvider": preferences.polishMode.rawValue,
+            "polishingCompleted": integrationPolishingCompleted, "unpolishedText": integrationUnpolishedText,
+            "appleIntelligenceAvailable": appleIntelligenceStatus.isAvailable, "appleIntelligenceStatus": appleIntelligenceStatus.message]
         let output = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents/integration-result.json")
         if let data = try? JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]) { try? data.write(to: output, options: .atomic) }
     }

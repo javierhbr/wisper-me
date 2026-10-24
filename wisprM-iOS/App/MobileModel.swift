@@ -346,7 +346,9 @@ import WisprMobileInference
     func runIntegrationIfRequested() async {
         let args = ProcessInfo.processInfo.arguments
         guard let index = args.firstIndex(of: "--integration-audio"), index + 1 < args.count else { return }
-        let file = URL(fileURLWithPath: args[index + 1]).standardizedFileURL
+        let documents = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents", isDirectory: true)
+        let input = args[index + 1]
+        let file = (input.hasPrefix("/") ? URL(fileURLWithPath: input) : documents.appendingPathComponent(input)).standardizedFileURL
         guard file.path.hasPrefix(NSHomeDirectory() + "/Documents/"), !busy else { return }
         isIntegrationRun = true
         preferences.polishMode = .off; preferences.historyEnabled = false

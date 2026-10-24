@@ -112,6 +112,18 @@ python3 scripts/integration-transcription.py --model parakeet-v3
 
 The integration script generates a speech fixture with macOS speech synthesis, runs the app's real model/decoder/formatting pipeline in Simulator, and saves a JSON report in `.build/`. Its developer route is compiled only into Debug builds and does not write to the clipboard during the test. It never records the microphone or reads personal audio. App/console processes are cleaned up on success and failure. The `--polish-model` option exercises the expected safe Simulator rejection and preserved local result; it cannot establish physical-phone MLX behavior. See [VERIFICATION.md](VERIFICATION.md) for the checks actually completed and their limits.
 
+### Generated-speech test on a physical iPhone
+
+Build and install a signed **Debug** app first using the iPhone instructions above. Find its CoreDevice identifier with `xcrun devicectl list devices`, then run:
+
+```sh
+python3 scripts/integration-phone.py --device <coredevice-id> --model whisper-tiny
+python3 scripts/integration-phone.py --device <coredevice-id> --model parakeet-v3
+python3 scripts/integration-phone.py --device <coredevice-id> --model whisper-tiny --polish-model mlx-community/Qwen2.5-0.5B-Instruct-4bit
+```
+
+The default app path is `.build/Phone/Build/Products/Debug-iphoneos/wisprM.app`; pass `--app` if your signed Debug build is elsewhere. Keep the phone unlocked and wisprM in the foreground. The script copies generated speech into this app's Documents folder, launches the real inference pipeline, and retrieves only its JSON report into `.build/phone-*.json`. It neither captures the microphone nor writes the clipboard. Fixture preferences, history, and shared transcripts are isolated from normal use; model weights are reused. Microphone capture, clipboard paste, and keyboard insertion require separate interactive checks.
+
 ## Dependencies and attribution
 
 The application and keyboard UI are original. Open-source inference dependencies retain their own licenses: [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift), [FluidAudio](https://github.com/FluidInference/FluidAudio), [MLX Swift LM](https://github.com/ml-explore/mlx-swift-lm), and their dependencies. The [Parakeet Core ML model](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml) declares its own model license. Model licensing and attribution apply separately from the SDKs.

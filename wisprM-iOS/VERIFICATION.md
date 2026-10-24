@@ -41,7 +41,9 @@ The final cached integration runs reported approximately 1.76 seconds for Whispe
 
 ## USB readiness follow-up
 
-Xcode detected a paired, available iPhone 16 Pro running iOS 26.6.2 with Developer Mode already enabled. It was visible over the local network, not USB. Existing local development profiles were checked, but the wildcard profile lacks the App Groups entitlement required by the app and keyboard. Automatic provisioning/device registration was blocked by approval review pending explicit authorization to modify Apple Developer account records. No provisioning or registration changes were made and no app was installed on the phone.
+After the Account Holder accepted Apple's pending Program License Agreement, automatic development provisioning succeeded. Both the app and keyboard built with the configured signing team. The app profile explicitly contains the required App Group and the connected phone's UDID; `codesign --verify --deep --strict` passed with access to the local signing trust store. Local signing identifiers remain in the ignored signing configuration.
+
+Installation is not yet verified. CoreDevice reported the paired iPhone's tunnel as unavailable and installation timed out before any success response. The user was asked to reconnect USB and unlock the phone. Physical-device transcription, microphone capture, and MLX polishing remain unverified.
 
 ## Reproduce
 

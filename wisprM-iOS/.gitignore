@@ -1,0 +1,5 @@
+.build/
+**/xcuserdata/
+*.xcuserstate
+signing.local.json
+MobileInference/Package.resolved

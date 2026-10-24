@@ -1,0 +1,411 @@
+// !$*UTF8*$!
+{
+"archiveVersion" = "1";
+"classes" = {
+
+};
+"objectVersion" = "56";
+"objects" = {
+"C27C7A47A69C8278B7D76D7E" = {
+"isa" = "XCLocalSwiftPackageReference";
+"relativePath" = "MobileCore";
+};
+"3E246923211BC559D4E9C8E1" = {
+"isa" = "XCLocalSwiftPackageReference";
+"relativePath" = "..";
+};
+"6ABA3A0AC79E4D6ED42C151C" = {
+"isa" = "XCLocalSwiftPackageReference";
+"relativePath" = "MobileInference";
+};
+"E1D6972DDFE3ECCE5A706461" = {
+"isa" = "PBXFileReference";
+"lastKnownFileType" = "sourcecode.swift";
+"path" = "App/AudioRecorder.swift";
+"sourceTree" = "<group>";
+};
+"3A374358CD7A38B7F08DA001" = {
+"isa" = "PBXBuildFile";
+"fileRef" = "E1D6972DDFE3ECCE5A706461";
+};
+"B8AF6208D021DF1BCF83A9A1" = {
+"isa" = "PBXFileReference";
+"lastKnownFileType" = "sourcecode.swift";
+"path" = "App/MobileModel.swift";
+"sourceTree" = "<group>";
+};
+"5A211CE088E298E3DB47A74D" = {
+"isa" = "PBXBuildFile";
+"fileRef" = "B8AF6208D021DF1BCF83A9A1";
+};
+"535F3C60536C87992968AE91" = {
+"isa" = "PBXFileReference";
+"lastKnownFileType" = "sourcecode.swift";
+"path" = "App/Storage.swift";
+"sourceTree" = "<group>";
+};
+"360B9DE2D65EF899A1CF70B3" = {
+"isa" = "PBXBuildFile";
+"fileRef" = "535F3C60536C87992968AE91";
+};
+"BB87DBA93769FC1F346F9CEA" = {
+"isa" = "PBXFileReference";
+"lastKnownFileType" = "sourcecode.swift";
+"path" = "App/Views.swift";
+"sourceTree" = "<group>";
+};
+"2DDAC26D38D0B14CCAF6FF52" = {
+"isa" = "PBXBuildFile";
+"fileRef" = "BB87DBA93769FC1F346F9CEA";
+};
+"4A645BD0AF97E4714DDC1A90" = {
+"isa" = "PBXFileReference";
+"lastKnownFileType" = "sourcecode.swift";
+"path" = "App/WisprMobileApp.swift";
+"sourceTree" = "<group>";
+};
+"9672A518A14D79FD0766D0D3" = {
+"isa" = "PBXBuildFile";
+"fileRef" = "4A645BD0AF97E4714DDC1A90";
+};
+"7338EEE739BBDE09EE7C47FC" = {
+"isa" = "PBXSourcesBuildPhase";
+"buildActionMask" = "2147483647";
+"files" = ("3A374358CD7A38B7F08DA001","5A211CE088E298E3DB47A74D","360B9DE2D65EF899A1CF70B3","2DDAC26D38D0B14CCAF6FF52","9672A518A14D79FD0766D0D3");
+"runOnlyForDeploymentPostprocessing" = "0";
+};
+"5EA66BFD2B5968219D12A5CB" = {
+"isa" = "XCSwiftPackageProductDependency";
+"package" = "C27C7A47A69C8278B7D76D7E";
+"productName" = "WisprMobileCore";
+};
+"6731E9DC07BA37D55E0F8B09" = {
+"isa" = "PBXBuildFile";
+"productRef" = "5EA66BFD2B5968219D12A5CB";
+};
+"1386BCE75D679A34FBE0FBDD" = {
+"isa" = "XCSwiftPackageProductDependency";
+"package" = "3E246923211BC559D4E9C8E1";
+"productName" = "WisprCore";
+};
+"875FAEC2D689DEB7B9FE2E4A" = {
+"isa" = "PBXBuildFile";
+"productRef" = "1386BCE75D679A34FBE0FBDD";
+};
+"179D18855FEF68F5D1BD6332" = {
+"isa" = "XCSwiftPackageProductDependency";
+"package" = "6ABA3A0AC79E4D6ED42C151C";
+"productName" = "WisprMobileInference";
+};
+"73B69805452A4AFF5CAA32B2" = {
+"isa" = "PBXBuildFile";
+"productRef" = "179D18855FEF68F5D1BD6332";
+};
+"BC6E49ACEB38E88D435D4ECC" = {
+"isa" = "PBXFrameworksBuildPhase";
+"buildActionMask" = "2147483647";
+"files" = ("6731E9DC07BA37D55E0F8B09","875FAEC2D689DEB7B9FE2E4A","73B69805452A4AFF5CAA32B2");
+"runOnlyForDeploymentPostprocessing" = "0";
+};
+"F84418FF41A795A43AA1B4BF" = {
+"isa" = "PBXFileReference";
+"lastKnownFileType" = "text.xml";
+"path" = "Resources/PrivacyInfo.xcprivacy";
+"sourceTree" = "<group>";
+};
+"61C88FF456C4A0B5BFF2521A" = {
+"isa" = "PBXBuildFile";
+"fileRef" = "F84418FF41A795A43AA1B4BF";
+};
+"2B537D170CE334714BC86947" = {
+"isa" = "PBXFileReference";
+"lastKnownFileType" = "folder.assetcatalog";
+"path" = "Resources/Assets.xcassets";
+"sourceTree" = "<group>";
+};
+"716E9590E60B3AFA6E62BF18" = {
+"isa" = "PBXBuildFile";
+"fileRef" = "2B537D170CE334714BC86947";
+};
+"A147723A0DE5666491BFB166" = {
+"isa" = "PBXResourcesBuildPhase";
+"buildActionMask" = "2147483647";
+"files" = ("61C88FF456C4A0B5BFF2521A","716E9590E60B3AFA6E62BF18");
+"runOnlyForDeploymentPostprocessing" = "0";
+};
+"0CAB39D80CF36D029906B290" = {
+"isa" = "PBXFileReference";
+"explicitFileType" = "wrapper.application";
+"path" = "wisprM.app";
+"sourceTree" = "BUILT_PRODUCTS_DIR";
+"includeInIndex" = "0";
+};
+"6D221C21CF08F5F969DF6EDB" = {
+"isa" = "XCBuildConfiguration";
+"name" = "Debug";
+"buildSettings" = {
+"PRODUCT_BUNDLE_IDENTIFIER" = "com.wisprm.mobile";
+"PRODUCT_NAME" = "$(TARGET_NAME)";
+"DEVELOPMENT_TEAM" = "";
+"WISPRM_APP_GROUP" = "group.com.wisprm.mobile";
+"INFOPLIST_FILE" = "Resources/wisprM-Info.plist";
+"CODE_SIGN_ENTITLEMENTS" = "Resources/wisprM.entitlements";
+"CODE_SIGN_STYLE" = "Automatic";
+"SWIFT_VERSION" = "5.0";
+"IPHONEOS_DEPLOYMENT_TARGET" = "17.0";
+"TARGETED_DEVICE_FAMILY" = "1,2";
+"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
+"SDKROOT" = "iphoneos";
+"GENERATE_INFOPLIST_FILE" = "NO";
+"CURRENT_PROJECT_VERSION" = "1";
+"MARKETING_VERSION" = "0.1.0";
+"LD_RUNPATH_SEARCH_PATHS" = ("$(inherited)","@executable_path/Frameworks","@executable_path/../../Frameworks");
+"SWIFT_EMIT_LOC_STRINGS" = "YES";
+"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
+};
+};
+"0B12513F8FA4804FECE48279" = {
+"isa" = "XCBuildConfiguration";
+"name" = "Release";
+"buildSettings" = {
+"PRODUCT_BUNDLE_IDENTIFIER" = "com.wisprm.mobile";
+"PRODUCT_NAME" = "$(TARGET_NAME)";
+"DEVELOPMENT_TEAM" = "";
+"WISPRM_APP_GROUP" = "group.com.wisprm.mobile";
+"INFOPLIST_FILE" = "Resources/wisprM-Info.plist";
+"CODE_SIGN_ENTITLEMENTS" = "Resources/wisprM.entitlements";
+"CODE_SIGN_STYLE" = "Automatic";
+"SWIFT_VERSION" = "5.0";
+"IPHONEOS_DEPLOYMENT_TARGET" = "17.0";
+"TARGETED_DEVICE_FAMILY" = "1,2";
+"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
+"SDKROOT" = "iphoneos";
+"GENERATE_INFOPLIST_FILE" = "NO";
+"CURRENT_PROJECT_VERSION" = "1";
+"MARKETING_VERSION" = "0.1.0";
+"LD_RUNPATH_SEARCH_PATHS" = ("$(inherited)","@executable_path/Frameworks","@executable_path/../../Frameworks");
+"SWIFT_EMIT_LOC_STRINGS" = "YES";
+"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
+};
+};
+"EC7FE00D78FDD2A7F5469EA1" = {
+"isa" = "XCConfigurationList";
+"buildConfigurations" = ("6D221C21CF08F5F969DF6EDB","0B12513F8FA4804FECE48279");
+"defaultConfigurationIsVisible" = "0";
+"defaultConfigurationName" = "Release";
+};
+"926FB7529009E542BC8ABDC8" = {
+"isa" = "PBXContainerItemProxy";
+"containerPortal" = "98F54143AB4E86B28C3AFEE0";
+"proxyType" = "1";
+"remoteGlobalIDString" = "0950E82439F96649513009E9";
+"remoteInfo" = "WisprKeyboard";
+};
+"643C6BD54CE2D5846C75D671" = {
+"isa" = "PBXTargetDependency";
+"target" = "0950E82439F96649513009E9";
+"targetProxy" = "926FB7529009E542BC8ABDC8";
+};
+"F0831BF210E9558B52D7E725" = {
+"isa" = "PBXBuildFile";
+"fileRef" = "57E9B5DDD6447E7586EBFA51";
+"settings" = {
+"ATTRIBUTES" = ("RemoveHeadersOnCopy");
+};
+};
+"750AF8B558936E3AECB9A82F" = {
+"isa" = "PBXCopyFilesBuildPhase";
+"buildActionMask" = "2147483647";
+"dstPath" = "";
+"dstSubfolderSpec" = "13";
+"files" = ("F0831BF210E9558B52D7E725");
+"name" = "Embed App Extensions";
+"runOnlyForDeploymentPostprocessing" = "0";
+};
+"E6AAB6905E0C822185191427" = {
+"isa" = "PBXNativeTarget";
+"name" = "wisprM";
+"productName" = "wisprM";
+"buildConfigurationList" = "EC7FE00D78FDD2A7F5469EA1";
+"buildPhases" = ("7338EEE739BBDE09EE7C47FC","BC6E49ACEB38E88D435D4ECC","A147723A0DE5666491BFB166","750AF8B558936E3AECB9A82F");
+"buildRules" = ();
+"dependencies" = ("643C6BD54CE2D5846C75D671");
+"productReference" = "0CAB39D80CF36D029906B290";
+"productType" = "com.apple.product-type.application";
+"packageProductDependencies" = ("5EA66BFD2B5968219D12A5CB","1386BCE75D679A34FBE0FBDD","179D18855FEF68F5D1BD6332");
+};
+"FA615DA20B552F566E5C2C84" = {
+"isa" = "PBXFileReference";
+"lastKnownFileType" = "sourcecode.swift";
+"path" = "Keyboard/KeyboardViewController.swift";
+"sourceTree" = "<group>";
+};
+"158D2B0054783B4BB0ED257F" = {
+"isa" = "PBXBuildFile";
+"fileRef" = "FA615DA20B552F566E5C2C84";
+};
+"24C76AF4048D02246E29001C" = {
+"isa" = "PBXSourcesBuildPhase";
+"buildActionMask" = "2147483647";
+"files" = ("158D2B0054783B4BB0ED257F");
+"runOnlyForDeploymentPostprocessing" = "0";
+};
+"0FE0BD0265E0FA9CC8ECA44F" = {
+"isa" = "XCSwiftPackageProductDependency";
+"package" = "C27C7A47A69C8278B7D76D7E";
+"productName" = "WisprMobileCore";
+};
+"B488E5B2EA97DD0275D402C2" = {
+"isa" = "PBXBuildFile";
+"productRef" = "0FE0BD0265E0FA9CC8ECA44F";
+};
+"C337BA76BB8D8858B9F26B63" = {
+"isa" = "PBXFrameworksBuildPhase";
+"buildActionMask" = "2147483647";
+"files" = ("B488E5B2EA97DD0275D402C2");
+"runOnlyForDeploymentPostprocessing" = "0";
+};
+"CD144F7A79042B355C43BB2D" = {
+"isa" = "PBXBuildFile";
+"fileRef" = "F84418FF41A795A43AA1B4BF";
+};
+"3AF41F3495911280574984A7" = {
+"isa" = "PBXResourcesBuildPhase";
+"buildActionMask" = "2147483647";
+"files" = ("CD144F7A79042B355C43BB2D");
+"runOnlyForDeploymentPostprocessing" = "0";
+};
+"57E9B5DDD6447E7586EBFA51" = {
+"isa" = "PBXFileReference";
+"explicitFileType" = "wrapper.app-extension";
+"path" = "WisprKeyboard.appex";
+"sourceTree" = "BUILT_PRODUCTS_DIR";
+"includeInIndex" = "0";
+};
+"02DF0291703A33A5FADBE2EF" = {
+"isa" = "XCBuildConfiguration";
+"name" = "Debug";
+"buildSettings" = {
+"PRODUCT_BUNDLE_IDENTIFIER" = "com.wisprm.mobile.keyboard";
+"PRODUCT_NAME" = "$(TARGET_NAME)";
+"DEVELOPMENT_TEAM" = "";
+"WISPRM_APP_GROUP" = "group.com.wisprm.mobile";
+"INFOPLIST_FILE" = "Resources/WisprKeyboard-Info.plist";
+"CODE_SIGN_ENTITLEMENTS" = "Resources/WisprKeyboard.entitlements";
+"CODE_SIGN_STYLE" = "Automatic";
+"SWIFT_VERSION" = "5.0";
+"IPHONEOS_DEPLOYMENT_TARGET" = "17.0";
+"TARGETED_DEVICE_FAMILY" = "1,2";
+"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
+"SDKROOT" = "iphoneos";
+"GENERATE_INFOPLIST_FILE" = "NO";
+"CURRENT_PROJECT_VERSION" = "1";
+"MARKETING_VERSION" = "0.1.0";
+"LD_RUNPATH_SEARCH_PATHS" = ("$(inherited)","@executable_path/Frameworks","@executable_path/../../Frameworks");
+"SWIFT_EMIT_LOC_STRINGS" = "YES";
+"APPLICATION_EXTENSION_API_ONLY" = "YES";
+"SKIP_INSTALL" = "YES";
+};
+};
+"F351750C3C6E1FF961087A1C" = {
+"isa" = "XCBuildConfiguration";
+"name" = "Release";
+"buildSettings" = {
+"PRODUCT_BUNDLE_IDENTIFIER" = "com.wisprm.mobile.keyboard";
+"PRODUCT_NAME" = "$(TARGET_NAME)";
+"DEVELOPMENT_TEAM" = "";
+"WISPRM_APP_GROUP" = "group.com.wisprm.mobile";
+"INFOPLIST_FILE" = "Resources/WisprKeyboard-Info.plist";
+"CODE_SIGN_ENTITLEMENTS" = "Resources/WisprKeyboard.entitlements";
+"CODE_SIGN_STYLE" = "Automatic";
+"SWIFT_VERSION" = "5.0";
+"IPHONEOS_DEPLOYMENT_TARGET" = "17.0";
+"TARGETED_DEVICE_FAMILY" = "1,2";
+"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
+"SDKROOT" = "iphoneos";
+"GENERATE_INFOPLIST_FILE" = "NO";
+"CURRENT_PROJECT_VERSION" = "1";
+"MARKETING_VERSION" = "0.1.0";
+"LD_RUNPATH_SEARCH_PATHS" = ("$(inherited)","@executable_path/Frameworks","@executable_path/../../Frameworks");
+"SWIFT_EMIT_LOC_STRINGS" = "YES";
+"APPLICATION_EXTENSION_API_ONLY" = "YES";
+"SKIP_INSTALL" = "YES";
+};
+};
+"26385D439F8AB5E5C22A377C" = {
+"isa" = "XCConfigurationList";
+"buildConfigurations" = ("02DF0291703A33A5FADBE2EF","F351750C3C6E1FF961087A1C");
+"defaultConfigurationIsVisible" = "0";
+"defaultConfigurationName" = "Release";
+};
+"0950E82439F96649513009E9" = {
+"isa" = "PBXNativeTarget";
+"name" = "WisprKeyboard";
+"productName" = "WisprKeyboard";
+"buildConfigurationList" = "26385D439F8AB5E5C22A377C";
+"buildPhases" = ("24C76AF4048D02246E29001C","C337BA76BB8D8858B9F26B63","3AF41F3495911280574984A7");
+"buildRules" = ();
+"dependencies" = ();
+"productReference" = "57E9B5DDD6447E7586EBFA51";
+"productType" = "com.apple.product-type.app-extension";
+"packageProductDependencies" = ("0FE0BD0265E0FA9CC8ECA44F");
+};
+"FBDC4F23F93125BBEEAE800C" = {
+"isa" = "PBXGroup";
+"children" = ("0CAB39D80CF36D029906B290","57E9B5DDD6447E7586EBFA51");
+"sourceTree" = "<group>";
+};
+"B28B7AF69320201D1CF206EB" = {
+"isa" = "PBXGroup";
+"children" = ("E1D6972DDFE3ECCE5A706461","B8AF6208D021DF1BCF83A9A1","535F3C60536C87992968AE91","BB87DBA93769FC1F346F9CEA","4A645BD0AF97E4714DDC1A90","F84418FF41A795A43AA1B4BF","2B537D170CE334714BC86947","FA615DA20B552F566E5C2C84","FBDC4F23F93125BBEEAE800C");
+"sourceTree" = "<group>";
+};
+"ED8772ADEC3A6C25161BC957" = {
+"isa" = "XCBuildConfiguration";
+"name" = "Debug";
+"buildSettings" = {
+"CLANG_ENABLE_MODULES" = "YES";
+"SWIFT_OPTIMIZATION_LEVEL" = "-Onone";
+"DEBUG_INFORMATION_FORMAT" = "dwarf";
+"SWIFT_ACTIVE_COMPILATION_CONDITIONS" = "DEBUG";
+"ENABLE_USER_SCRIPT_SANDBOXING" = "YES";
+};
+};
+"00F209874A1F7309F6DCEAA7" = {
+"isa" = "XCBuildConfiguration";
+"name" = "Release";
+"buildSettings" = {
+"CLANG_ENABLE_MODULES" = "YES";
+"SWIFT_OPTIMIZATION_LEVEL" = "-O";
+"DEBUG_INFORMATION_FORMAT" = "dwarf-with-dsym";
+"SWIFT_ACTIVE_COMPILATION_CONDITIONS" = "";
+"ENABLE_USER_SCRIPT_SANDBOXING" = "YES";
+};
+};
+"640DC9EFD529235A8D9E2727" = {
+"isa" = "XCConfigurationList";
+"buildConfigurations" = ("ED8772ADEC3A6C25161BC957","00F209874A1F7309F6DCEAA7");
+"defaultConfigurationIsVisible" = "0";
+"defaultConfigurationName" = "Release";
+};
+"98F54143AB4E86B28C3AFEE0" = {
+"isa" = "PBXProject";
+"attributes" = {
+"LastUpgradeCheck" = "2650";
+"BuildIndependentTargetsInParallel" = "YES";
+};
+"buildConfigurationList" = "640DC9EFD529235A8D9E2727";
+"compatibilityVersion" = "Xcode 14.0";
+"developmentRegion" = "en";
+"hasScannedForEncodings" = "0";
+"knownRegions" = ("en","Base");
+"mainGroup" = "B28B7AF69320201D1CF206EB";
+"productRefGroup" = "FBDC4F23F93125BBEEAE800C";
+"projectDirPath" = "";
+"projectRoot" = "";
+"targets" = ("E6AAB6905E0C822185191427","0950E82439F96649513009E9");
+"packageReferences" = ("C27C7A47A69C8278B7D76D7E","3E246923211BC559D4E9C8E1","6ABA3A0AC79E4D6ED42C151C");
+};
+};
+"rootObject" = "98F54143AB4E86B28C3AFEE0";
+}

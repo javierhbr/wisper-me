@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "wisprM",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "WisprCore", targets: ["WisprCore"]),
         .executable(name: "wisprM", targets: ["WisprM"])

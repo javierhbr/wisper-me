@@ -66,6 +66,21 @@ Reports are retained locally in ignored `.build/phone-whisper-tiny.json`, `.buil
 
 Reports remain in ignored `.build/integration-whisper-tiny-apple-intelligence.json`, `.build/integration-parakeet-v3-apple-intelligence.json`, and `.build/phone-whisper-tiny-apple-intelligence.json`. Tests use generated speech, isolated preferences/history/sharing, and the production polishing path; the report only marks polishing complete after the requested provider returns and its result is accepted. No microphone capture or clipboard writes occur during fixture tests. Physical background interruption, guardrail refusal, long-context failure, and other system-model availability states have not been exercised. Their failure paths preserve local cleanup in the coordinator.
 
+## Cached speech-model restoration (2026-10-24)
+
+The restart bug was reproduced in the normal Simulator app: Parakeet remained selected and its receipt showed 483.3 MB stored, but relaunching reset engine readiness and displayed **Choose a speech model**. Startup never loaded the saved selection; polishing also unloaded speech without letting recording restore it.
+
+The fix automatically prepares the selected cached model on launch/foreground, distinguishes cached files from an engine loaded in memory, and reloads cached speech when recording starts after polishing or unloading. Startup and recording restoration explicitly pass `allowDownload: false`. Manual loading also discovers complete cached preset files when their receipt is missing. Imported models still require their saved receipt and valid local components. Selection is not silently changed to another cached preset.
+
+Verified:
+
+- `integration-relaunch.py --model parakeet-v3` and `--model whisper-tiny`: each prepared the real engine, terminated the app, and relaunched with only the startup-check flag. Both restored the saved selection, returned `ready: true` and `canDictate: true`, and recorded `downloadAllowed: false`. Both repeated successfully after clearing only the isolated test receipts. Large cached weight-file paths, sizes, and modification times remained unchanged throughout all four restores.
+- Actual Whisper Tiny + Apple Intelligence processing still completed. After polishing unloaded speech (`loadedModel` empty), `canDictate` remained true, so **Start dictation** can prepare the cached engine instead of sending the user to model setup. This did not record a microphone.
+- The existing 12 mobile Swift tests and 2 project-generation tests passed. Simulator Debug, signed iPhone Debug, and unsigned iPhone Release builds passed.
+- The signed update installed on the physical iPhone. A real startup check restored saved Whisper Tiny and returned `ready: true`, `canDictate: true`, `cachedModel: true`, `downloadAllowed: false`, and an empty error. The isolated test process was terminated afterwards. A normal relaunch was requested, but iOS blocked activation after the phone locked again; the next manual launch uses normal preferences. No microphone or clipboard was used in this check.
+
+Reports are in ignored `.build/relaunch-parakeet-v3.json`, `.build/relaunch-whisper-tiny.json`, and `.build/phone-model-restore.json`. Physical Parakeet startup, imported-model restoration, incomplete/corrupt-cache repair, and actual microphone capture after reloading were not separately exercised in this change.
+
 ## Reproduce
 
 ```sh

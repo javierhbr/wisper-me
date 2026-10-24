@@ -14,14 +14,44 @@ public actor SpeechRuntime {
     private var parakeet: AsrManager?
     private var loaded: String?
 
-    public func prepare(_ choice: SpeechChoice, directory: URL, existing: URL?, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+    /// Finds complete cached weights without creating a downloader or choosing another model.
+    public static func cachedFolder(_ choice: SpeechChoice, directory: URL, existing: URL?) -> URL? {
+        var candidates = existing.map { [$0] } ?? []
+        if choice.repository != "local" {
+            switch choice.engine {
+            case .whisper:
+                candidates.append(directory.appendingPathComponent("models")
+                    .appendingPathComponent(choice.repository).appendingPathComponent(choice.variant))
+            case .parakeet:
+                candidates.append(directory.appendingPathComponent(AsrModels.defaultCacheDirectory(for: .v3).lastPathComponent))
+            }
+        }
+        let root = directory.resolvingSymlinksInPath().standardizedFileURL.path + "/"
+        return candidates.first { folder in
+            guard folder.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(root) else { return false }
+            switch choice.engine {
+            case .whisper:
+                return ["AudioEncoder", "TextDecoder", "MelSpectrogram"].allSatisfy { component in
+                    ["mlmodelc", "mlpackage"].contains { ext in
+                        FileManager.default.fileExists(atPath: folder.appendingPathComponent(component + "." + ext).path)
+                    }
+                }
+            case .parakeet:
+                return AsrModels.modelsExist(at: folder, version: .v3, encoderPrecision: .int8)
+            }
+        }
+    }
+
+    public func prepare(_ choice: SpeechChoice, directory: URL, existing: URL?, allowDownload: Bool = true, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         await unload()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let cached = Self.cachedFolder(choice, directory: directory, existing: existing)
         let folder: URL
         switch choice.engine {
         case .whisper:
-            if let existing, FileManager.default.fileExists(atPath: existing.path) { folder = existing }
+            if let cached { folder = cached }
             else {
+                guard allowDownload else { throw MobileFailure.message("The saved speech model is missing or incomplete. Download it again in Models.") }
                 do {
                     folder = try await WhisperKit.download(variant: choice.variant, downloadBase: directory,
                         from: choice.repository, progressCallback: { progress($0.fractionCompleted) })
@@ -35,12 +65,13 @@ public actor SpeechRuntime {
             do { whisper = try await WhisperKit(configuration) }
             catch { throw MobileFailure.message("Whisper initialization failed: \(error.localizedDescription)") }
         case .parakeet:
-            folder = existing.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
+            folder = cached
                 ?? directory.appendingPathComponent(AsrModels.defaultCacheDirectory(for: .v3).lastPathComponent)
             let models: AsrModels
-            if existing != nil && FileManager.default.fileExists(atPath: folder.path) {
+            if cached != nil {
                 models = try AsrModels.loadLocal(from: folder, version: .v3, encoderPrecision: .int8)
             } else {
+                guard allowDownload else { throw MobileFailure.message("The saved speech model is missing or incomplete. Download it again in Models.") }
                 models = try await AsrModels.downloadAndLoad(to: folder, version: .v3, encoderPrecision: .int8,
                     progressHandler: { progress($0.fractionCompleted) })
             }

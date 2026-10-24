@@ -8,13 +8,24 @@ import AppIntents
         WindowGroup {
             MobileRootView(model: model)
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active { model.copyWhenActive(); model.refreshAppleIntelligenceAvailability() } else { model.suspendLocalPolishing() }
+                    if phase == .active {
+                        model.copyWhenActive(); model.refreshAppleIntelligenceAvailability()
+                        if !MobilePaths.integration { model.restoreSelectedSpeechModelIfNeeded() }
+                    } else { model.suspendLocalPolishing() }
                 }
                 .onOpenURL { url in if url.scheme == "wisprm" { model.tab = 0 } }
                 .onReceive(NotificationCenter.default.publisher(for: .init("com.wisprm.mobile.openDictation"))) { _ in model.tab = 0 }
                 .task {
                     #if DEBUG
-                    await model.runIntegrationIfRequested()
+                    if MobilePaths.integration && !ProcessInfo.processInfo.arguments.contains("--integration-restore-check") {
+                        await model.runIntegrationIfRequested()
+                        return
+                    }
+                    model.prepareRestorationTestIfRequested()
+                    #endif
+                    await model.restoreSpeechOnLaunch()
+                    #if DEBUG
+                    model.reportRestorationIfRequested()
                     #endif
                 }
         }

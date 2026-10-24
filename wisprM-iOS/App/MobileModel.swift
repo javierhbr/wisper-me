@@ -38,6 +38,7 @@ import WisprMobileInference
     #if DEBUG
     private var integrationUnpolishedText = ""
     private var integrationPolishingCompleted = false
+    private var integrationSpeechDownloadAllowed = true
     #endif
     private var backgroundTask = UIBackgroundTaskIdentifier.invalid
     var busy: Bool { phase != .idle }
@@ -63,41 +64,62 @@ import WisprMobileInference
         recorder.onError = { [weak self] error in self?.phase = .idle; self?.error = error.localizedDescription }
     }
 
-    func loadSpeech() {
+    var cachedSpeechFolder: URL? {
+        SpeechRuntime.cachedFolder(preferences.speechChoice, directory: MobilePaths.models,
+            existing: receipts[preferences.modelID]?.folder)
+    }
+    var canDictate: Bool { ready || cachedSpeechFolder != nil }
+
+    func restoreSelectedSpeechModelIfNeeded() {
+        guard !busy, !ready, cachedSpeechFolder != nil else { return }
+        beginSpeechLoad(allowDownload: false)
+    }
+    func restoreSpeechOnLaunch() async {
+        restoreSelectedSpeechModelIfNeeded()
+        if let work { await work.value }
+    }
+    func loadSpeech() { beginSpeechLoad(allowDownload: true) }
+    private func beginSpeechLoad(allowDownload: Bool) {
         guard !busy else { return }
         let choice = preferences.speechChoice
-        if choice.repository == "local", receipts[choice.id]?.folder.map({ FileManager.default.fileExists(atPath: $0.path) }) != true {
-            error = "This imported model is missing. Import its folder again from Files."; return
-        }
-        phase = .preparing; progress = 0; error = nil; loadedID = nil
-        message = "Downloading or loading \(choice.name)…"
+        phase = .preparing; progress = 0; error = nil
         work = Task {
-            defer { self.phase = .idle; self.work = nil }
-            do {
-                await textRuntime.unload(); textModelID = nil
-                let folder = try await speech.prepare(choice, directory: MobilePaths.models,
-                    existing: receipts[choice.id]?.folder, progress: { [weak self] value in
-                        Task { @MainActor in if self?.phase == .preparing { self?.progress = value } }
-                    })
-                try Task.checkCancellation()
-                let bytes: Int64
-                do { bytes = try await Task.detached(priority: .utility) { try ModelReceipt.measure(folder) }.value }
-                catch { throw MobileFailure.message("Model storage inspection failed: \(error.localizedDescription)") }
-                let prefix = MobilePaths.models.path + "/"
-                guard folder.path.hasPrefix(prefix) else { throw MobileFailure.message("The model was downloaded outside its storage directory.") }
-                receipts[choice.id] = ModelReceipt(relativePath: String(folder.path.dropFirst(prefix.count)), bytes: bytes)
-                saveReceipts(); loadedID = choice.id; message = "\(choice.name) is ready. Audio stays on this iPhone."
-            } catch {
-                await speech.unload()
-                #if DEBUG
-                if isIntegrationRun { FileHandle.standardError.write(Data("wisprM prepare failure: \(String(reflecting: error)) · \((error as NSError).userInfo)\n".utf8)) }
-                #endif
+            defer { phase = .idle; work = nil }
+            do { try await prepareSpeech(choice, allowDownload: allowDownload) }
+            catch {
+                await speech.unload(); loadedID = nil
                 if error is CancellationError { message = "Model loading cancelled." }
                 else { self.error = error.localizedDescription }
             }
         }
     }
-
+    private func prepareSpeech(_ choice: SpeechChoice, allowDownload: Bool) async throws {
+        let cached = SpeechRuntime.cachedFolder(choice, directory: MobilePaths.models, existing: receipts[choice.id]?.folder)
+        if choice.repository == "local", cached == nil {
+            throw MobileFailure.message("This imported model is missing or incomplete. Import its folder again from Files.")
+        }
+        phase = .preparing; progress = 0; error = nil; loadedID = nil
+        message = cached != nil ? "Loading cached \(choice.name)…" : "Downloading \(choice.name)…"
+        #if DEBUG
+        integrationSpeechDownloadAllowed = allowDownload
+        #endif
+        await textRuntime.unload(); textModelID = nil
+        let folder = try await speech.prepare(choice, directory: MobilePaths.models, existing: cached,
+            allowDownload: allowDownload, progress: { [weak self] value in
+                Task { @MainActor in if self?.phase == .preparing { self?.progress = value } }
+            })
+        try Task.checkCancellation()
+        let bytes: Int64
+        do { bytes = try await Task.detached(priority: .utility) { try ModelReceipt.measure(folder) }.value }
+        catch { throw MobileFailure.message("Model storage inspection failed: \(error.localizedDescription)") }
+        try Task.checkCancellation()
+        let prefix = MobilePaths.models.path + "/"
+        guard folder.path.hasPrefix(prefix) else { throw MobileFailure.message("The model was loaded outside its storage directory.") }
+        receipts[choice.id] = ModelReceipt(relativePath: String(folder.path.dropFirst(prefix.count)), bytes: bytes)
+        saveReceipts()
+        if let data = try? JSONEncoder().encode(preferences) { defaults.set(data, forKey: "mobile.preferences.v1") }
+        loadedID = choice.id; message = "\(choice.name) ready. Audio stays on iPhone."
+    }
     func loadTextModel() {
         guard !busy else { return }
         let id = preferences.localTextModel.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -109,7 +131,7 @@ import WisprMobileInference
                 try await textRuntime.prepare(id: id, localDirectory: localTextDirectory(preferences), cacheDirectory: MobilePaths.models.appendingPathComponent("Text")) { [weak self] value in
                     Task { @MainActor in if self?.phase == .preparing { self?.progress = value } }
                 }
-                textModelID = id; message = "Text model downloaded. Load your speech model next. Text weights remain cached."
+                textModelID = id; message = "Text model downloaded. Your cached speech model will load when dictation starts."
             } catch {
                 textModelID = nil
                 if error is CancellationError { message = "Text model loading cancelled." }
@@ -120,16 +142,20 @@ import WisprMobileInference
 
     func start() {
         guard !busy else { return }
-        guard ready else { tab = 1; error = "Download and load the selected speech model first."; return }
+        guard canDictate else { tab = 1; error = "Download the selected speech model first."; return }
         let snapshot = preferences; recordingPreferences = snapshot
-        phase = .authorizing; error = nil
+        phase = ready ? .authorizing : .preparing; error = nil
         work = Task {
             defer { work = nil }
             do {
+                if !ready { try await prepareSpeech(snapshot.speechChoice, allowDownload: false) }
+                try Task.checkCancellation()
+                phase = .authorizing
                 try await recorder.start(in: MobilePaths.recordings)
                 try Task.checkCancellation()
                 phase = .recording; message = "Listening. Tap Finish when you are done."
             } catch {
+                if !ready { await speech.unload() }
                 recorder.cancel(); phase = .idle
                 if !(error is CancellationError) { self.error = error.localizedDescription }
             }
@@ -368,6 +394,22 @@ import WisprMobileInference
     private func saveReceipts() { if let data = try? JSONEncoder().encode(receipts) { defaults.set(data, forKey: "mobile.models.v1") } }
 
     #if DEBUG
+    func prepareRestorationTestIfRequested() {
+        let args = ProcessInfo.processInfo.arguments
+        guard MobilePaths.integration, args.contains("--integration-restore-check"),
+              args.contains("--integration-forget-receipts") else { return }
+        receipts = [:]; defaults.removeObject(forKey: "mobile.models.v1")
+    }
+    func reportRestorationIfRequested() {
+        guard ProcessInfo.processInfo.arguments.contains("--integration-restore-check") else { return }
+        let report: [String: Any] = ["selectedModel": preferences.modelID, "loadedModel": loadedID ?? "",
+            "ready": ready, "downloadAllowed": integrationSpeechDownloadAllowed,
+            "cachedModel": cachedSpeechFolder != nil, "canDictate": canDictate, "error": error ?? ""]
+        let file = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents/integration-restore.json")
+        if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: file, options: .atomic)
+        }
+    }
     /// Developer integration path uses the same loader, decoder, formatter and result delivery.
     /// Test input must be a generated fixture in this app's Documents directory.
     func runIntegrationIfRequested() async {
@@ -402,7 +444,7 @@ import WisprMobileInference
         let result: [String: Any] = ["model": preferences.modelID, "text": transcript,
             "error": error ?? "", "seconds": Date().timeIntervalSince(started), "sharedContainer": MobilePaths.group != nil,
             "loadedModel": loadedID ?? "", "polishingProvider": preferences.polishMode.rawValue,
-            "polishingCompleted": integrationPolishingCompleted, "unpolishedText": integrationUnpolishedText,
+            "polishingCompleted": integrationPolishingCompleted, "unpolishedText": integrationUnpolishedText, "canDictate": canDictate,
             "appleIntelligenceAvailable": appleIntelligenceStatus.isAvailable, "appleIntelligenceStatus": appleIntelligenceStatus.message]
         let output = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents/integration-result.json")
         if let data = try? JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]) { try? data.write(to: output, options: .atomic) }

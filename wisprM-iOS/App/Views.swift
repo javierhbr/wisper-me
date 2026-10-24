@@ -49,7 +49,7 @@ struct DictationView: View {
                 }.padding(18).background(.background.opacity(0.7), in: RoundedRectangle(cornerRadius: 20))
                 RecordingControl(model: model, recorder: model.recorder)
                 Text(model.message).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
-                if !model.ready && !model.busy {
+                if !model.canDictate && !model.busy {
                     Button("Choose and load a model") { model.tab = 1 }.buttonStyle(.bordered)
                 }
                 Button { importing = true } label: { Label("Transcribe an audio file", systemImage: "waveform.badge.plus") }
@@ -76,11 +76,11 @@ struct RecordingControl: View {
             if model.phase == .recording || !model.busy {
                 Button {
                     if model.phase == .recording { model.finish() }
-                    else if !model.ready { model.tab = 1 }
+                    else if !model.canDictate { model.tab = 1 }
                     else { model.start() }
                 } label: {
-                    Label(model.phase == .recording ? "Finish dictation" : model.ready ? "Start dictation" : "Choose a speech model",
-                          systemImage: model.phase == .recording ? "stop.fill" : model.ready ? "mic.fill" : "square.stack.3d.up")
+                    Label(model.phase == .recording ? "Finish dictation" : model.canDictate ? "Start dictation" : "Choose a speech model",
+                          systemImage: model.phase == .recording ? "stop.fill" : model.canDictate ? "mic.fill" : "square.stack.3d.up")
                         .font(.headline).frame(maxWidth: .infinity).padding(.vertical, 15)
                 }.buttonStyle(.borderedProminent)
             } else {
@@ -140,7 +140,7 @@ struct MobileModelsView: View {
                     Text(path.path).font(.caption2.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
                     Button("Delete downloaded model", role: .destructive) { deleting = model.preferences.speechChoice }.disabled(model.busy)
                 }
-                Button(model.ready ? "Reload speech model" : "Download & load speech model", action: model.loadSpeech).disabled(model.busy)
+                Button(model.ready ? "Reload speech model" : model.cachedSpeechFolder != nil ? "Load cached speech model" : "Download & load speech model", action: model.loadSpeech).disabled(model.busy)
                 if model.loadedID != nil || model.textModelID != nil { Button("Unload models", action: model.unload).disabled(model.busy) }
                 if model.busy {
                     ProgressView(value: model.progress)

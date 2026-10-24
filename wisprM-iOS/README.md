@@ -57,7 +57,7 @@ Unsigned device output cannot be installed on a phone until it is signed and pro
 ## Dictate and paste
 
 1. In **Models**, select Whisper Tiny, Base, Small, or **Parakeet TDT 0.6B v3**.
-2. Tap **Download & load speech model**. The first download can be large; model loading can also take time as iOS prepares Core ML caches.
+2. Tap **Download & load speech model** once. The selected model is remembered and automatically loaded from cached files when the app opens again. The first download can be large; model loading can also take time as iOS prepares Core ML caches.
 3. In **Dictate**, tap **Start dictation**, grant microphone permission, speak, then tap **Finish dictation**.
 4. Finished text is copied to the system clipboard while wisprM is active. Paste it in your destination app, or use **Copy** and the Share button.
 
@@ -80,6 +80,8 @@ iOS prohibits keyboard extensions from accessing the microphone. This version us
 
 ## Models and storage
 
+Your speech-model selection persists across app restarts. Startup restores complete cached weights without permitting a model download. Cached preset files can also be recovered if their installation receipt is missing; incomplete or deleted models still require an explicit download in Models. After polishing or manually unloading models, **Start dictation** reloads the selected cached model automatically.
+
 - **Whisper:** native WhisperKit, pinned SDK 1.1.1, using the explicit `openai_whisper-tiny`, `openai_whisper-base`, and `openai_whisper-small` Core ML variants.
 - **Parakeet:** native FluidAudio, pinned SDK 0.17.7, explicitly `.v3` with the int8 encoder. This is the multilingual **TDT 0.6B v3** model, not v2.
 - iOS assets differ from the Mac MLX files. The UI reports the actual installed model folder size and location after downloading; Mac download figures are not reused.
@@ -98,9 +100,9 @@ The first download uses the network. Recognition does not upload audio or transc
 
 **Apple Intelligence** uses Apple's on-device Foundation Models framework on compatible iPhones running iOS 26 or later. In **Models → Optional text polishing**, choose **Apple Intelligence**. The screen shows whether the device is eligible, Apple Intelligence is enabled, the system model is ready, and the selected language is supported. Use **Check availability** after changing system settings; availability also refreshes when wisprM returns to the foreground.
 
-The app sends only the completed transcript to the on-device system model, with instructions to correct grammar, punctuation, spelling, and capitalization while preserving language, meaning, names, numbers, and structure. No cloud provider or separate app-managed LLM download is used. Keep wisprM open while polishing. Unavailable models, unsupported languages, oversized input, generation errors, and provider changes preserve local cleanup. This option accepts up to 6,000 UTF-8 bytes per transcript; the framework also enforces its actual context limit. Apple's operating system manages its own model storage. App-managed speech/text models are unloaded before the request to reduce memory use, so load the speech model again for the next recording.
+The app sends only the completed transcript to the on-device system model, with instructions to correct grammar, punctuation, spelling, and capitalization while preserving language, meaning, names, numbers, and structure. No cloud provider or separate app-managed LLM download is used. Keep wisprM open while polishing. Unavailable models, unsupported languages, oversized input, generation errors, and provider changes preserve local cleanup. This option accepts up to 6,000 UTF-8 bytes per transcript; the framework also enforces its actual context limit. Apple's operating system manages its own model storage. App-managed speech/text models are unloaded before the request to reduce memory use, and the cached speech model automatically loads when the next recording starts.
 
-**On-device language model** uses native MLX Swift LM 2.31.3. Enter a compatible Hugging Face MLX model ID, such as the default small Qwen2.5 0.5B 4-bit model, or import a complete MLX model/tokenizer folder from Files. Architectures and tokenizers must be supported by that SDK; arbitrary model files are not executable plugins. Download the text weights using the Models screen, then load your speech model. For memory conservation, speech weights are unloaded before local polishing, and the text model is unloaded afterwards, including on cancellation. Load the speech model again before another recording. Device memory may limit usable models. Keep the app open during MLX polishing; if it becomes inactive, the app cancels polishing and preserves local cleanup.
+**On-device language model** uses native MLX Swift LM 2.31.3. Enter a compatible Hugging Face MLX model ID, such as the default small Qwen2.5 0.5B 4-bit model, or import a complete MLX model/tokenizer folder from Files. Architectures and tokenizers must be supported by that SDK; arbitrary model files are not executable plugins. Download the text weights in Models. The selected cached speech model loads automatically when dictation starts. For memory conservation, speech weights are unloaded before local polishing, and the text model is unloaded afterwards, including on cancellation. The cached speech model automatically reloads before the next recording. Device memory may limit usable models. Keep the app open during MLX polishing; if it becomes inactive, the app cancels polishing and preserves local cleanup.
 
 **Model server** uses a compatible HTTPS chat-completions endpoint and an explicit model name. Save an optional API key in Keychain; it is scoped to the endpoint origin. Transcript text is sent to that server only while this mode remains selected. Audio remains on the phone. `localhost` refers to the phone, not a Mac running Ollama. Do not disable TLS to reach a Mac; expose a trusted HTTPS endpoint if you choose this mode.
 
@@ -112,6 +114,8 @@ If polishing is disabled during a pending request, the result is discarded and l
 make test
 python3 scripts/integration-transcription.py --model whisper-tiny
 python3 scripts/integration-transcription.py --model parakeet-v3
+python3 scripts/integration-relaunch.py --model parakeet-v3
+python3 scripts/integration-relaunch.py --model whisper-tiny
 ```
 
 The integration script generates a speech fixture with macOS speech synthesis, runs the app's real model/decoder/formatting pipeline in Simulator, and saves a JSON report in `.build/`. Its developer route is compiled only into Debug builds and does not write to the clipboard during the test. It never records the microphone or reads personal audio. App/console processes are cleaned up on success and failure. The `--polish-model` option exercises the expected safe Simulator rejection and preserved local result; it cannot establish physical-phone MLX behavior. See [VERIFICATION.md](VERIFICATION.md) for the checks actually completed and their limits.

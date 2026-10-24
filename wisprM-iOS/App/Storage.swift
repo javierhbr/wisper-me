@@ -6,6 +6,7 @@ import WisprCore
 enum MobilePaths {
     #if DEBUG
     static let integration = ProcessInfo.processInfo.arguments.contains("--integration-audio")
+        || ProcessInfo.processInfo.arguments.contains("--integration-restore-check")
     #else
     static let integration = false
     #endif

@@ -5,7 +5,7 @@ Validated on Apple Silicon (M3 Max), Xcode 26.5 / Swift 6.3, with the installed 
 ## Passed
 
 - **Simulator app and embedded keyboard build:** Debug, arm64, with ad-hoc signing and strict sealed-bundle verification. Both compiled Info plists and simulator entitlements use the same App Group.
-- **Physical iPhone target build:** Release arm64 app and embedded keyboard compiled successfully. This output is unsigned; it was not installed on a phone. The app bundle is approximately 53 MB before speech or text-model downloads.
+- **Physical iPhone target builds and installation:** unsigned Release arm64 and development-signed Debug app/keyboard built successfully. Signed bundle verification passed, and CoreDevice confirmed USB installation. The unsigned Release bundle is approximately 53 MB before model downloads.
 - **11 mobile Swift tests, run on the Mac host:** audio resampling through EOF, stereo downmixing, oversized audio rejection, captured polishing consent, reasoning-output filtering, transcript expiry/future-date/size limits, bounded history, defaults, and compatible-folder copying/symlink rejection.
 - **2 Python project tests:** signing IDs/team/App Group survive repeated generation, and project generation is deterministic.
 - **Existing Mac regression suite:** 55 Swift tests and 25 Python tests, all passing after adding the iOS deployment platform to the shared package.
@@ -34,16 +34,27 @@ The final cached integration runs reported approximately 1.76 seconds for Whispe
 
 - Physical iPhone microphone capture, phone-call/Bluetooth interruptions, lock-screen/background completion, memory pressure, battery, thermals, and long recordings.
 - Whisper Base/Small inference. Their real native variants are wired into the same WhisperKit loader, but only Tiny was exercised end to end.
-- Local MLX language-model inference on a physical iPhone. A real simulator attempt exposed unsupported Metal architecture/shared-heap behavior in the pinned backend. The app now rejects this operation safely in Simulator before entering MLX; the device build retains the native implementation. No simulated or canned LLM response substitutes for it.
+- Local MLX polishing across other models or long transcripts. Qwen2.5 0.5B 4-bit completed the generated-speech check on the physical iPhone, as recorded below. Simulator MLX remains explicitly unsupported by the pinned backend; the app rejects it safely.
 - A live remote model-server request from the iPhone app. Shared HTTP transport/privacy behavior is covered by the existing core tests.
 - Live typing/insertion by the keyboard in other host applications. The extension compiles, its read-only shared-container design is supported by Apple's documentation, and main-app shared-container access was observed. Secure fields and host apps that reject custom keyboards remain unsupported by iOS.
-- App Store acceptance, completed distribution/development provisioning, or TestFlight deployment. USB follow-up found an existing Apple Development identity and configured its team only in the ignored local signing file; no new account was authenticated.
+- App Store acceptance, distribution provisioning, or TestFlight deployment. Development provisioning and USB installation have been verified separately below.
 
 ## USB readiness follow-up
 
 After the Account Holder accepted Apple's pending Program License Agreement, automatic development provisioning succeeded. Both the app and keyboard built with the configured signing team. The app profile explicitly contains the required App Group and the connected phone's UDID; `codesign --verify --deep --strict` passed with access to the local signing trust store. Local signing identifiers remain in the ignored signing configuration.
 
-Installation is not yet verified. CoreDevice reported the paired iPhone's tunnel as unavailable and installation timed out before any success response. The user was asked to reconnect USB and unlock the phone. Physical-device transcription, microphone capture, and MLX polishing remain unverified.
+Installation succeeded over USB: CoreDevice confirmed `com.javierhbr.wisprm` installed with the embedded keyboard. Both provisioning profiles contain the same required App Group and the phone's UDID. The initial locked-screen test launch was denied by iOS; after unlocking, all three generated-speech checks completed on the physical iPhone 16 Pro (iOS 26.6.2):
+
+| Test | Observed output | Total time |
+| --- | --- | --- |
+| Whisper Tiny | The Quick Brown Fox jumps over the lazy dog. | 17.19 s |
+| Parakeet TDT 0.6B v3 | The quick brown fox jumps over the lazy dog. | 23.31 s |
+| Whisper Tiny + local MLX Qwen2.5 0.5B 4-bit polishing | The Quick Brown Fox jumps over the lazy dog. | 16.53 s |
+
+Each report returned an empty error and `sharedContainer: true`. The polishing run unloaded speech recognition before loading and running the real MLX text model; no server or canned response was used. These are single fixture runs including model loading and any required downloads, not latency benchmarks. Parakeet's first download attempt reported `cancelled`; the diagnostic retry completed successfully. No general reliability claim is implied by that successful retry.
+
+Reports are retained locally in ignored `.build/phone-whisper-tiny.json`, `.build/phone-parakeet-v3.json`, and `.build/phone-whisper-tiny-polished.json`. The Debug-only fixture route temporarily suppresses the idle timer during inference and restores its previous state afterwards. Fixture audio is deleted by the normal processing cleanup; tests do not record the microphone or write the clipboard. Physical microphone capture, clipboard paste, host-app keyboard insertion, interruptions, battery, and thermal behavior remain unverified.
+
 
 ## Reproduce
 

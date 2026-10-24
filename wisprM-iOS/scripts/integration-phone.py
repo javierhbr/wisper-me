@@ -29,7 +29,10 @@ def main():
     report.write_text("{}\n")
 
     def command(*arguments, check=True):
-        return subprocess.run(list(arguments), check=check, capture_output=True, text=True, timeout=45)
+        result = subprocess.run(list(arguments), capture_output=True, text=True, timeout=45)
+        if check and result.returncode:
+            raise SystemExit((result.stderr or result.stdout).strip() or f"Command failed: {arguments[0]}")
+        return result
 
     def device(*arguments, check=True):
         return command("xcrun", "devicectl", "device", *arguments,

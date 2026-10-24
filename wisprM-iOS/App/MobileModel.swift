@@ -351,6 +351,9 @@ import WisprMobileInference
         let file = (input.hasPrefix("/") ? URL(fileURLWithPath: input) : documents.appendingPathComponent(input)).standardizedFileURL
         guard file.path.hasPrefix(NSHomeDirectory() + "/Documents/"), !busy else { return }
         isIntegrationRun = true
+        let idleTimerWasDisabled = UIApplication.shared.isIdleTimerDisabled
+        UIApplication.shared.isIdleTimerDisabled = true
+        defer { UIApplication.shared.isIdleTimerDisabled = idleTimerWasDisabled }
         preferences.polishMode = .off; preferences.historyEnabled = false
         if let polishing = args.firstIndex(of: "--integration-polish-model"), polishing + 1 < args.count {
             preferences.localTextModel = args[polishing + 1]; preferences.localTextFolder = nil; preferences.polishMode = .local

@@ -67,6 +67,10 @@ Phone calls and other audio interruptions end recording and process the captured
 
 The Shortcuts app exposes **Open wisprM Dictation**. It can be assigned to supported Action buttons. This opens the app; it does not silently activate the microphone or provide a global desktop shortcut.
 
+While recording, the **Listening** panel shows actual microphone volume as a moving waveform and a short history. Silence stays flat. It uses the existing recorder's meter, respects Reduce Motion, and stops visual sampling when the app or Dictate tab is hidden; audio recording continues until you finish or reach the recording limit.
+
+Cached Parakeet preparation now uses asynchronous Core ML loading with a 90-second native-load deadline and responsive cancellation. A timed-out framework call may still finish in the background; wisprM keeps one native Parakeet job reserved and ignores its late result. If recovery says the previous job is still ending, choose Whisper or close wisprM from the app switcher before retrying Parakeet. Cached weights are not deleted on timeout.
+
 ## Use the keyboard
 
 1. Add **wisprM** in iPhone Settings → General → Keyboard → Keyboards → Add New Keyboard.

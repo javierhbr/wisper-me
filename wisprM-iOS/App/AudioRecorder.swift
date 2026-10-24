@@ -3,10 +3,12 @@ import Combine
 import WisprMobileCore
 
 @MainActor final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
-    @Published private(set) var level: Float = 0
+    @Published private(set) var meter = MicrophoneMeter()
+    var level: Float { meter.level }
     @Published private(set) var seconds: TimeInterval = 0
     private var recorder: AVAudioRecorder?
     private var timer: Timer?
+    private var meteringVisible = true
     private var interruption: NSObjectProtocol?
     var onFinish: ((URL) -> Void)?
     var onError: ((Error) -> Void)?
@@ -31,19 +33,13 @@ import WisprMobileCore
                 AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false
             ])
             attempted = value
-            value.delegate = self; value.isMeteringEnabled = true
+            value.delegate = self; value.isMeteringEnabled = meteringVisible
             guard value.prepareToRecord(), value.record(forDuration: 180) else {
                 throw MobileFailure.message("The microphone could not start recording.")
             }
             try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: url.path)
-            recorder = value; seconds = 0
-            timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-                Task { @MainActor in
-                    guard let self, let recorder = self.recorder else { return }
-                    recorder.updateMeters(); self.seconds = recorder.currentTime
-                    self.level = max(0, min(1, pow(10, recorder.averagePower(forChannel: 0) / 25)))
-                }
-            }
+            recorder = value; seconds = 0; meter.reset()
+            startMeteringIfNeeded()
             interruption = NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification,
                 object: session, queue: .main) { [weak self] note in
                     guard (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue else { return }
@@ -55,6 +51,31 @@ import WisprMobileCore
             try? session.setActive(false, options: .notifyOthersOnDeactivation)
             throw error
         }
+    }
+    func setMeteringVisible(_ visible: Bool) {
+        meteringVisible = visible
+        recorder?.isMeteringEnabled = visible
+        if visible { startMeteringIfNeeded() }
+        else { timer?.invalidate(); timer = nil; meter.reset() }
+    }
+    private func startMeteringIfNeeded() {
+        guard meteringVisible, timer == nil, recorder != nil else { return }
+        sampleMeter()
+        let meterTimer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.sampleMeter() }
+        }
+        meterTimer.tolerance = 0.01
+        timer = meterTimer
+        RunLoop.main.add(meterTimer, forMode: .common)
+    }
+    private func sampleMeter() {
+        guard meteringVisible, let recorder else { return }
+        recorder.updateMeters()
+        let elapsed = recorder.currentTime
+        if Int(elapsed) != Int(seconds) { seconds = elapsed }
+        var next = meter
+        next.update(decibels: recorder.averagePower(forChannel: 0))
+        if next.samples != meter.samples { meter = next }
     }
     func finish() {
         guard let recorder else { return }
@@ -70,7 +91,7 @@ import WisprMobileCore
         try? FileManager.default.removeItem(at: recorder.url); cleanSession()
     }
     private func cleanSession() {
-        timer?.invalidate(); timer = nil; level = 0
+        timer?.invalidate(); timer = nil; meter.reset()
         if let interruption { NotificationCenter.default.removeObserver(interruption) }; interruption = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }

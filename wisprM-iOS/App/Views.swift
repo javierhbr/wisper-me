@@ -70,8 +70,7 @@ struct RecordingControl: View {
     var body: some View {
         VStack(spacing: 14) {
             if model.phase == .recording {
-                ProgressView(value: Double(recorder.level)).tint(MobileTheme.green)
-                Text(Duration.seconds(recorder.seconds).formatted(.time(pattern: .minuteSecond))).monospacedDigit().font(.title3)
+                LiveMicrophoneView(meter: recorder.meter, seconds: recorder.seconds)
             }
             if model.phase == .recording || !model.busy {
                 Button {
@@ -88,6 +87,52 @@ struct RecordingControl: View {
             }
             if model.busy { Button("Cancel", role: .cancel, action: model.cancel).disabled(model.phase == .cancelling) }
         }
+    }
+}
+
+struct LiveMicrophoneView: View {
+    let meter: MicrophoneMeter
+    let seconds: TimeInterval
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+    private var ink: Color { colorScheme == .dark ? Color(red: 0.49, green: 0.79, blue: 0.64) : MobileTheme.green }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            HStack(spacing: 3) {
+                ForEach(Array([0.45, 0.8, 1.0, 0.7, 0.35].enumerated()), id: \.offset) { _, scale in
+                    Capsule().fill(ink)
+                        .frame(width: 4, height: 4 + CGFloat(meter.level) * 30 * scale)
+                }
+            }
+            .frame(width: 32, height: 36)
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    Text("Listening").font(.headline)
+                    Spacer()
+                    Text(Duration.seconds(seconds).formatted(.time(pattern: .minuteSecond)))
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                GeometryReader { geometry in
+                    let width = max(2, (geometry.size.width - CGFloat(meter.samples.count - 1) * 3) / CGFloat(meter.samples.count))
+                    HStack(alignment: .center, spacing: 3) {
+                        ForEach(meter.samples.indices, id: \.self) { index in
+                            Capsule().fill(ink.opacity(0.22 + Double(meter.samples[index]) * 0.78))
+                                .frame(width: width, height: 4 + CGFloat(meter.samples[index]) * 24)
+                        }
+                    }
+                    .frame(height: geometry.size.height)
+                }
+                .frame(height: 28)
+            }
+        }
+        .padding(16)
+        .background(ink.opacity(0.06), in: RoundedRectangle(cornerRadius: 18))
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: meter.samples)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Microphone input")
+        .accessibilityValue("\(meter.level > 0.1 ? "Sound detected" : "Listening for sound"), \(Int(seconds)) seconds recorded")
     }
 }
 

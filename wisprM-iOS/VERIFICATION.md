@@ -81,6 +81,39 @@ Verified:
 
 Reports are in ignored `.build/relaunch-parakeet-v3.json`, `.build/relaunch-whisper-tiny.json`, and `.build/phone-model-restore.json`. Physical Parakeet startup, imported-model restoration, incomplete/corrupt-cache repair, and actual microphone capture after reloading were not separately exercised in this change.
 
+## Parakeet recovery and microphone waveform (2026-10-24)
+
+The user reported indefinite Preparing on cached Parakeet. The old path called synchronous `AsrModels.loadLocal`, including synchronous Core ML construction, on the speech actor. UI cancellation subsequently awaited cleanup on that same actor. The exact blocked native stack could not be captured because the phone locked before debugger attachment; an ANE/compiler root cause is not asserted.
+
+The replacement is an original v3-only local adapter using public asynchronous `MLModel.load` and the SDK's public model initializer/component names. It does not use SDK repair/redownload behavior or global offline flags. A locked one-shot continuation returns on timeout/cancellation without waiting for an uncooperative native child; one pending reservation lasts until the native worker actually finishes. Generation checks prevent late engine adoption, and progress generations are invalidated at completion so late updates cannot overwrite another job. The 90-second deadline covers Parakeet native construction, not every download, Whisper load, or cleanup operation. Native framework work can outlive the UI deadline.
+
+Validation passed:
+
+- 17 mobile Swift tests and 2 project-generation checks, including five new metering/deadline tests. The deadline regression explicitly verifies the bounded call returns before the late native callback, then waits for callback cleanup. Early cancellation, success/error completion, bounded meter history, silence, and non-finite audio power are covered.
+- Simulator Debug and signed iPhone Debug builds. Real Parakeet inference and both cache-only restart/missing-receipt checks still passed in Simulator.
+- Actual Parakeet preparation/transcription completed on the physical iPhone with an empty error, a ready model, and the expected generated sentence. Total fixture time was 27.06 seconds after installation, including model preparation and transcription. This is one functional run, not a warm-start or energy benchmark. The final reviewed update was installed and launched normally afterwards.
+- Uncle Senior re-reviewed the continuation, pending-job, stale-result, and progress-generation changes and found no remaining concrete blocker in that bounded scope.
+
+The waveform is connected to `AVAudioRecorder.updateMeters` at up to 20 Hz only while recording is visible. It disables visual metering/timers when inactive or on another tab, publishes displayed duration at whole-second changes, skips unchanged histories, gives the timer tolerance, and resets at cleanup. Core audio recording remains unchanged and capped at three minutes. Hardware microphone visualization, interruptions during metering, and actual energy consumption were not separately measured; fixture tests use generated audio and never record the user's microphone.
+
+## iPhone energy and security source review (2026-10-24)
+
+Uncle Lead and Uncle Senior performed bounded read-only reviews. Graph tools were unavailable, so evidence uses exact source reads and searches. Neither measured battery drain, CPU utilization, thermals, or actual data leakage. Findings below are code behavior or policy gaps, not measured mWh savings:
+
+| Priority | Finding | Status / suggested next step |
+| --- | --- | --- |
+| P1 | Unbounded synchronous cached Parakeet preparation and same-actor cleanup could strand Preparing/Cancelling. | Addressed by the async adapter, bounded waiter, one pending native job, and stale-result checks above. Framework work may still outlive cancellation. |
+| P2 | Visual microphone metering continued when hidden and published duration every tick. | Addressed in the new waveform lifecycle: visible-only sampling, timer invalidation/tolerance, duration approximately 1 Hz. |
+| P2 | ASR is unloaded around Apple/MLX edits and reloaded for later dictation/foreground use, even when returning only to History/Settings. Apple availability is checked after discarding ASR. | Remaining: check availability first; avoid speculative foreground loads away from Dictate. Benchmark short model residency against peak RAM/Jetsam risk before changing memory policy. See `App/MobileModel.swift` and `App/WisprMobileApp.swift`. |
+| P2 | Automatic copying uses the general clipboard without local-only or expiry options. Keyboard insertion expiry does not apply to it. | Remaining privacy policy decision: offer device-local clipboard data and expiration while preserving ordinary paste. Universal Clipboard eligibility is verified by API choice; no cross-device transfer was observed. See `App/MobileModel.swift` (`copy`). |
+| P2 | Models are excluded from backup only after successful ASR preparation. Initial text-only downloads/imports or a first hanging load can precede that exclusion. | Remaining: create/exclude Models centrally before downloads/imports. Actual backups were not inspected. See `App/Storage.swift` and `MobileInference/.../NativeModels.swift`. |
+| P3 | Every cached reload rescans model files despite an existing byte-count receipt. | Remaining: reuse validated receipt sizes, recalculate after download/import/recovery or explicit refresh. See `App/MobileModel.swift` and `App/Storage.swift`. |
+| P3 | Opt-in local history is file-protected but not excluded from OS backups. | Clarify intended backup policy; exclude it or document/offer backup participation. File protection is not a device-only promise. See `MobileCore/.../Domain.swift` (`HistoryArchive`). |
+
+Existing controls remain: HTTPS except explicit loopback, rejected redirects, origin-scoped device-only Keychain credentials, bounded imports/responses, captured polishing consent, explicit keyboard insertion, and no keyboard microphone/network access. No broad security rewrite is indicated by this review.
+
+For a real energy comparison, use Release workloads on the phone, separate cold/warm starts, compare repeated short dictations with cleanup/Apple/MLX, compare visible/hidden metering, and record Low Power Mode, thermal state, and peak memory. Debug fixtures disable idle sleep while they run and are not battery benchmarks. Relevant Apple guidance: [timer use](https://developer.apple.com/library/archive/documentation/Performance/Conceptual/EnergyGuide-iOS/MinimizeTimerUse.html), [pasteboard options](https://developer.apple.com/documentation/uikit/uipasteboard), and [backup exclusion](https://developer.apple.com/documentation/foundation/urlresourcekey/isexcludedfrombackupkey).
+
 ## Reproduce
 
 ```sh

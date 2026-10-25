@@ -174,10 +174,25 @@ Validation:
 
 The model may still return unchanged or imperfect wording. In one Professional fixture, a working microphone was described as having completed testing; state/transport tests do not establish semantic equivalence. The app now reports no-change honestly and keeps review/retry/rejection available. Users should inspect the proposal before acceptance.
 
+## Desktop/mobile repository layout (2026-10-25)
+
+The apps now live in sibling desktop/ and mobile/ directories. The existing desktop Swift package exports WisprCore; both mobile packages reference ../../desktop and the Xcode project references ../desktop. Product names, bundle IDs, dependency versions, source behavior, runtime locations and app data remain unchanged.
+
+Validation from the repository root passed:
+
+- make test: 58 desktop/shared Swift tests, 25 desktop Python tests, 45 mobile Swift tests and 15 mobile Python tests (143 total).
+- make desktop and make verify: macOS Release bundle build, ad hoc signature and bundled worker startup/closed-resource checks.
+- make mobile: iOS Simulator Debug build.
+- make mobile-device: unsigned native iPhone Release build.
+- SHA-256 comparisons confirmed all 77 recorded application/script source files unchanged after relocation. Signing configuration bytes and all personal project signing fields match the pre-move snapshot.
+- Path, architecture and impact/security reviews approved the reorganization. Public project defaults are committed; existing personal signing overrides remain local and unstaged.
+
+Current build/reproduction commands use the new directories. Historical design and fixture reports retain their original as-of paths. Path-sensitive generated caches were retained under ignored mobile/.build/pre-reorganization backups and rebuilt; no model weights, signing credentials, user data, or generated bundles were added to Git. This change does not install or deploy either app.
+
 ## Reproduce
 
 ```sh
-cd wisprM-iOS
+cd mobile
 make test
 make build
 make device

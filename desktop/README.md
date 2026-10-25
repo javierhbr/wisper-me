@@ -4,7 +4,7 @@ Run the commands in this document from the desktop/ directory. The repository ro
 
 An original native macOS voice-to-text app using SwiftUI/AppKit and local MLX speech models. No Wispr Flow code, files, assets, protocols, or branding are included.
 
-The native iPhone app is in [wisprM-iOS](../wisprM-iOS/README.md), with its own Xcode project, Makefile, model runtimes, and transcript keyboard extension. It shares our formatting and privacy code while keeping the Mac application separate.
+The native iPhone app is in [mobile](../mobile/README.md), with its own Xcode project, Makefile, model runtimes, and transcript keyboard extension. It shares our formatting and privacy code while keeping the Mac application separate.
 
 ## Requirements
 

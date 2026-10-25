@@ -49,3 +49,7 @@ The first HTTP fixture run stalled because unfinished synthetic responses omitte
 - An ad hoc rebuild can require the user to reauthorize macOS permissions.
 
 Source code and public dependencies remain original/separate from Wispr Flow. The existing untracked .serena tooling folder was not modified.
+
+## Repository layout verification (2026-10-25)
+
+Desktop sources and commands now live under desktop/; iOS sources live under mobile/. Existing fixture results above remain historical evidence. From the repository root, make test passed all 143 Swift/Python tests across both apps. make desktop, make verify, make mobile and make mobile-device passed. All 77 recorded application/script file hashes match their pre-move contents, and local mobile signing settings were preserved.

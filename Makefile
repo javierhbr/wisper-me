@@ -2,7 +2,7 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := build
 .NOTPARALLEL:
 
-MOBILE_DIR := wisprM-iOS
+MOBILE_DIR := mobile
 DESKTOP_TARGETS := all build verify install run open setup-runtime clean swift-test python-test check-python
 
 .PHONY: help desktop desktop-build mobile mobile-build mobile-device mobile-project desktop-test mobile-test test $(DESKTOP_TARGETS)

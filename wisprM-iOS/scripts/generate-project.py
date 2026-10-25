@@ -24,7 +24,7 @@ def encode(value):
 project = uid("project")
 packages = {}
 packages["mobilecore"] = obj("package-mobilecore", "XCLocalSwiftPackageReference", relativePath="MobileCore")
-packages["wisprcore"] = obj("package-wisprcore", "XCLocalSwiftPackageReference", relativePath="..")
+packages["wisprcore"] = obj("package-wisprcore", "XCLocalSwiftPackageReference", relativePath="../desktop")
 packages["inference"] = obj("package-inference", "XCLocalSwiftPackageReference", relativePath="MobileInference")
 
 files = []

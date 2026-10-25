@@ -2,7 +2,7 @@
 
 A native SwiftUI app with on-device Whisper and Parakeet transcription, local formatting, optional language-model polishing, clipboard copying, private history, and an original custom keyboard for inserting completed transcripts.
 
-The Mac app remains in the parent directory. This project shares our own `WisprCore` formatting and privacy code; it does not use any Wispr Flow files or assets.
+The Mac app is in the sibling [desktop](../desktop/README.md) directory. This project shares our own `WisprCore` formatting and privacy code; it does not use any Wispr Flow files or assets.
 
 ## Requirements
 

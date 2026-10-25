@@ -12,7 +12,7 @@
 };
 "3E246923211BC559D4E9C8E1" = {
 "isa" = "XCLocalSwiftPackageReference";
-"relativePath" = "..";
+"relativePath" = "../desktop";
 };
 "6ABA3A0AC79E4D6ED42C151C" = {
 "isa" = "XCLocalSwiftPackageReference";

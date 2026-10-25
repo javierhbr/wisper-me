@@ -7,7 +7,7 @@ let package = Package(
     products: [.library(name: "WisprMobileInference", targets: ["WisprMobileInference"])],
     dependencies: [
         .package(path: "../MobileCore"),
-        .package(name: "wisprM", path: "../.."),
+        .package(name: "wisprM", path: "../../desktop"),
         .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", exact: "1.1.1"),
         .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.17.7", traits: []),
         .package(url: "https://github.com/ml-explore/mlx-swift-lm.git", exact: "2.31.3"),

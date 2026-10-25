@@ -6,3 +6,6 @@ dist/
 __pycache__/
 *.pyc
 verification/*.aiff
+
+# Desktop verification fixtures
+desktop/verification/*.aiff

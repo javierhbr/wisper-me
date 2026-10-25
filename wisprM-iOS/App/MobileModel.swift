@@ -5,7 +5,7 @@ import WisprMobileCore
 import WisprMobileInference
 
 @MainActor final class MobileModel: ObservableObject {
-    enum Phase: String { case idle, preparing, authorizing, recording, transcribing, polishing, cancelling }
+    enum Phase: String { case idle, preparing, authorizing, recording, transcribing, polishing, rewriting, cancelling }
     @Published var tab = 0
     @Published var preferences: MobilePreferences { didSet {
         if let data = try? JSONEncoder().encode(preferences) { defaults.set(data, forKey: "mobile.preferences.v1") }
@@ -14,13 +14,37 @@ import WisprMobileInference
             polishTask?.cancel()
         }
         if oldValue.language != preferences.language { refreshAppleIntelligenceAvailability() }
+        if oldValue != preferences {
+            cancelRewrite()
+            rewriteError = nil
+        }
     } }
     @Published private(set) var phase = Phase.idle
     @Published private(set) var loadedID: String?
     @Published private(set) var textModelID: String?
     @Published private(set) var progress: Double = 0
     @Published private(set) var appleIntelligenceStatus = AppleIntelligencePolisher.availability(language: "auto")
-    @Published var transcript = ""
+    @Published var transcript = "" {
+        didSet {
+            guard oldValue != transcript, !applyingRewrite else { return }
+            if phase == .rewriting { cancelRewrite() }
+            rewrite.textChanged()
+            rewriteHistoryID = nil
+            rewriteError = nil
+        }
+    }
+    @Published var rewritePresented = false
+    @Published var rewriteProvider = RewriteProvider.appleIntelligence {
+        didSet { if oldValue != rewriteProvider { cancelRewrite(); rewriteError = nil } }
+    }
+    @Published var rewriteDirections = "" {
+        didSet { if oldValue != rewriteDirections { cancelRewrite(); rewriteError = nil } }
+    }
+    @Published private(set) var rewrite = IdeaRewriteSession()
+    @Published private(set) var rewriteError: String?
+    private var applyingRewrite = false
+    private var rewriteHistoryID: UUID?
+    var canUndoRewrite: Bool { !busy && rewrite.canUndo(currentText: transcript) }
     @Published var message = "Choose a local model to begin."
     @Published var error: String?
     @Published private(set) var history: [Transcript] = []
@@ -46,6 +70,7 @@ import WisprMobileInference
     private var isIntegrationRun = false
     #if DEBUG
     private var integrationUnpolishedText = ""
+    private var integrationRewriteRequestCount = 0
     private var integrationPolishingCompleted = false
     private var integrationSpeechDownloadAllowed = true
     private var integrationSpeechPreparationCount = 0
@@ -309,6 +334,141 @@ import WisprMobileInference
         }
     }
 
+    func openRewrite() {
+        guard !busy, !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        rewrite.cancel()
+        rewriteDirections = ""
+        switch preferences.polishMode {
+        case .off, .appleIntelligence: rewriteProvider = .appleIntelligence
+        case .local: rewriteProvider = .local
+        case .server: rewriteProvider = .server
+        }
+        rewriteError = nil
+        rewritePresented = true
+    }
+
+    func generateRewrite() {
+        guard !busy, !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let source = transcript
+        let directions = rewriteDirections
+        let provider = rewriteProvider
+        let snapshot = preferences
+        let maximumBytes = provider == .appleIntelligence ? 6_000 : provider == .local ? 32_000 : 64 * 1024
+        do {
+            _ = try IdeaRewritePrompt.input(text: source, directions: directions, maximumBytes: maximumBytes)
+        } catch {
+            rewriteError = error.localizedDescription
+            return
+        }
+        let attempt = rewrite.begin(source: source)
+        rewriteError = nil
+        phase = .rewriting
+        work = Task {
+            defer { phase = .idle; work = nil; polishTask = nil; releaseSpeechIfNeeded() }
+            guard !Task.isCancelled, rewritePresented, rewrite.isGenerating else { return }
+            #if DEBUG
+            integrationRewriteRequestCount += 1
+            #endif
+            let request = Task<String, Error> {
+                try Task.checkCancellation()
+                guard !provider.requiresForeground || UIApplication.shared.applicationState == .active else {
+                    throw MobileFailure.message("Keep wisprM open while rewriting on this iPhone.")
+                }
+                guard !InferenceEnergyPolicy.cancelPolishing(mode: provider.polishMode, pressure: resourcePressure) else {
+                    throw MobileFailure.message("Rewriting is unavailable under current memory or thermal pressure.")
+                }
+                if provider == .appleIntelligence {
+                    let status = AppleIntelligencePolisher.availability(language: snapshot.language)
+                    guard status.isAvailable else { throw MobileFailure.message(status.message) }
+                    if !InferenceEnergyPolicy.retainSpeechForApple(
+                        foreground: UIApplication.shared.applicationState == .active, pressure: resourcePressure) {
+                        if let release = speechReleaseTask { await release.value }
+                        await speech.unload(); loadedID = nil
+                    }
+                    return try await AppleIntelligencePolisher.rewrite(source, directions: directions,
+                        language: snapshot.language, style: snapshot.style.rawValue)
+                }
+                if provider == .local {
+                    if let release = speechReleaseTask { await release.value }
+                    try Task.checkCancellation()
+                    await speech.unload(); loadedID = nil
+                    try await textRuntime.prepare(id: snapshot.localTextModel, localDirectory: localTextDirectory(snapshot),
+                        cacheDirectory: MobilePaths.models.appendingPathComponent("Text")) { _ in }
+                    return try await textRuntime.rewrite(source, modelID: snapshot.localTextModel,
+                        style: snapshot.style.rawValue, directions: directions)
+                }
+                return try await server.rewrite(source, directions: directions, style: snapshot.style,
+                    configuration: .init(endpoint: snapshot.serverEndpoint, model: snapshot.serverModel,
+                        apiKey: MobileCredentialStore.read(endpoint: snapshot.serverEndpoint)))
+            }
+            polishTask = request
+            let result = await request.result
+            if provider == .local { await textRuntime.unload(); textModelID = nil }
+            do {
+                let text = try result.get()
+                try Task.checkCancellation()
+                guard rewritePresented, rewriteProvider == provider, preferences == snapshot,
+                      rewriteDirections == directions else { rewrite.cancel(); return }
+                if !rewrite.finish(text, attempt: attempt, currentText: transcript) {
+                    rewriteError = "The rewrite could not be used. Your original text is unchanged."
+                }
+            } catch {
+                rewrite.cancel()
+                if !(error is CancellationError) && !Task.isCancelled {
+                    rewriteError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func cancelRewrite() {
+        if phase == .rewriting { polishTask?.cancel(); work?.cancel() }
+        rewrite.cancel()
+    }
+
+    func dismissRewrite() {
+        cancelRewrite()
+        rewritePresented = false
+    }
+
+    func keepOriginalRewrite() { dismissRewrite() }
+
+    func acceptRewrite() {
+        guard !busy, let text = rewrite.accept(currentText: transcript) else { return }
+        applyingRewrite = true
+        transcript = text
+        applyingRewrite = false
+        let result = Transcript(text: text, model: "Idea rewrite")
+        if preferences.historyEnabled {
+            history.insert(result, at: 0); history = Array(history.prefix(30))
+            rewriteHistoryID = result.id
+            do { try MobilePaths.archive.save(history) } catch { self.error = error.localizedDescription }
+        }
+        publishRewrite(result)
+        rewritePresented = false
+    }
+
+    func undoRewrite() {
+        guard !busy, let original = rewrite.undo(currentText: transcript) else { return }
+        applyingRewrite = true
+        transcript = original
+        applyingRewrite = false
+        if let id = rewriteHistoryID {
+            history.removeAll { $0.id == id }
+            do { try MobilePaths.archive.save(history) } catch { self.error = error.localizedDescription }
+        }
+        rewriteHistoryID = nil
+        publishRewrite(Transcript(text: original, model: "Original text"))
+    }
+
+    private func publishRewrite(_ result: Transcript) {
+        do { try MobilePaths.exchange?.publish(result) }
+        catch { self.error = "Text is ready, but keyboard sharing failed. " + error.localizedDescription }
+        needsCopy = true
+        message = "Text updated. Copy or share it, or use the wisprM keyboard."
+        copyWhenActive()
+    }
+
     private func mayPolish(_ captured: MobilePreferences) -> Bool {
         MobilePolishingConsent.allows(captured: captured, live: preferences)
     }
@@ -331,6 +491,10 @@ import WisprMobileInference
     }
     func suspendLocalPolishing() {
         if phase == .polishing && preferences.polishMode.requiresForeground { polishTask?.cancel() }
+        if phase == .rewriting && rewriteProvider.requiresForeground {
+            cancelRewrite()
+            rewriteError = "Rewriting stopped because wisprM became inactive. Your original text is unchanged."
+        }
     }
     func sceneChanged(_ scene: ScenePhase) {
         if scene == .active {
@@ -375,7 +539,11 @@ import WisprMobileInference
         integrationResourcePressureDuringRun = true
         #endif
         cancelSpeculativeSpeechPreparation()
-        if InferenceEnergyPolicy.cancelPolishing(mode: preferences.polishMode, pressure: resourcePressure) {
+        if phase == .rewriting && InferenceEnergyPolicy.cancelPolishing(mode: rewriteProvider.polishMode, pressure: resourcePressure) {
+            cancelRewrite()
+            rewriteError = "Rewriting stopped to reduce memory or thermal pressure. Your original text is unchanged."
+        }
+        if phase == .polishing && InferenceEnergyPolicy.cancelPolishing(mode: preferences.polishMode, pressure: resourcePressure) {
             polishTask?.cancel()
         }
         releaseSpeechIfNeeded()
@@ -395,6 +563,7 @@ import WisprMobileInference
         appleIntelligenceStatus = AppleIntelligencePolisher.availability(language: preferences.language)
     }
     func cancel() {
+        if phase == .rewriting { cancelRewrite(); return }
         preparationProgressID = UUID()
         if phase == .recording { recorder.cancel(); phase = .idle; message = "Recording cancelled."; releaseSpeechIfNeeded(); return }
         guard busy else { return }
@@ -578,6 +747,7 @@ import WisprMobileInference
         if args.contains("--integration-apple-intelligence") { preferences.polishMode = .appleIntelligence }
         defer { preferences.polishMode = .off }
         if let engine = args.firstIndex(of: "--integration-model"), engine + 1 < args.count { preferences.modelID = args[engine + 1] }
+        if args.contains("--integration-rewrite-check") { preferences.polishMode = .off }
         let started = Date()
         loadSpeech()
         if let current = work { await current.value }
@@ -591,8 +761,9 @@ import WisprMobileInference
             process(file, snapshot: preferences)
             if let current = work { await current.value }
         }
+        let rewriteReport = args.contains("--integration-rewrite-check") ? await runRewriteIntegration(args) : [:]
         refreshAppleIntelligenceAvailability()
-        let result: [String: Any] = ["model": preferences.modelID, "text": transcript,
+        var result: [String: Any] = ["model": preferences.modelID, "text": transcript,
             "error": error ?? "", "seconds": Date().timeIntervalSince(started), "sharedContainer": MobilePaths.group != nil,
             "loadedModel": loadedID ?? "", "resourcePressureDuringRun": integrationResourcePressureDuringRun,
         "textCacheDownloadCompleted": integrationTextCacheDownloadCompleted,
@@ -603,8 +774,58 @@ import WisprMobileInference
             "appleIntelligenceAvailable": appleIntelligenceStatus.isAvailable, "appleIntelligenceStatus": appleIntelligenceStatus.message,
             "lowPowerMode": ProcessInfo.processInfo.isLowPowerModeEnabled,
             "thermalState": ProcessInfo.processInfo.thermalState.rawValue]
+        result.merge(rewriteReport) { _, new in new }
         let output = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents/integration-result.json")
         if let data = try? JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]) { try? data.write(to: output, options: .atomic) }
+    }
+    private func runRewriteIntegration(_ args: [String]) async -> [String: Any] {
+        let source = transcript
+        let historyEnabled = preferences.historyEnabled
+        preferences.historyEnabled = true
+        let originalHistory = [Transcript(text: source, model: "Generated fixture")]
+        history = originalHistory
+        try? MobilePaths.archive.save(history)
+        defer {
+            if !args.contains("--integration-rewrite-preview") { preferences.historyEnabled = historyEnabled }
+        }
+        let sharedBefore = try? MobilePaths.exchange?.latest()
+        openRewrite()
+        if let index = args.firstIndex(of: "--integration-rewrite-provider"), index + 1 < args.count,
+           args[index + 1] == "local" {
+            rewriteProvider = .local
+        }
+        if let index = args.firstIndex(of: "--integration-rewrite-directions"), index + 1 < args.count {
+            rewriteDirections = args[index + 1]
+        }
+        let requestsBeforeCancel = integrationRewriteRequestCount
+        generateRewrite()
+        cancelRewrite()
+        if let current = work { await current.value }
+        let cancelBeforeStartPreservedOriginal = transcript == source && rewrite.proposal == nil
+            && integrationRewriteRequestCount == requestsBeforeCancel
+        generateRewrite()
+        if let current = work { await current.value }
+        let proposal = rewrite.proposal ?? ""
+        let failure = rewriteError ?? ""
+        let unchanged = transcript == source
+        let historyUnchanged = history == originalHistory && (try? MobilePaths.archive.load()) == originalHistory
+        let sharedUnchanged = (try? MobilePaths.exchange?.latest()) == sharedBefore
+        if args.contains("--integration-rewrite-preview") {
+            return ["rewriteRequested": true, "rewriteProposal": proposal, "rewriteError": failure]
+        }
+        acceptRewrite()
+        let accepted = !proposal.isEmpty && transcript == proposal && rewrite.canUndo(currentText: transcript)
+            && (try? MobilePaths.exchange?.latest())?.text == proposal
+        undoRewrite()
+        let restored = transcript == source && history == originalHistory && !canUndoRewrite
+            && (try? MobilePaths.exchange?.latest())?.text == source
+        return ["rewriteRequested": true, "rewriteProvider": rewriteProvider.rawValue,
+            "rewriteOriginal": source, "rewriteProposal": proposal, "rewriteError": failure,
+            "rewriteCompleted": !proposal.isEmpty, "rewritePreviewPreservedOriginal": unchanged,
+            "rewritePreviewPreservedHistory": historyUnchanged, "rewritePreviewPreservedShared": sharedUnchanged,
+            "rewriteAccepted": accepted, "rewriteUndoRestoredOriginal": restored,
+            "rewriteCancelBeforeStartPreservedOriginal": cancelBeforeStartPreservedOriginal,
+            "rewriteAutomaticPolishingMode": preferences.polishMode.rawValue]
     }
     #endif
 }

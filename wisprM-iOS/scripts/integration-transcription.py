@@ -24,7 +24,14 @@ parser.add_argument("--phrase", default="The quick brown fox jumps over the lazy
 parser.add_argument("--language", default="auto")
 parser.add_argument("--cache-text-model", help="Cache MLX weights without warming inference")
 parser.add_argument("--expect-apple-unavailable", action="store_true")
+parser.add_argument("--rewrite", action="store_true", help="Exercise manual rewrite preview, acceptance, and Undo")
+parser.add_argument("--rewrite-directions", default="", help="Optional instructions for the idea rewrite")
+parser.add_argument("--rewrite-provider", choices=["apple", "local"], default="apple")
 args = parser.parse_args()
+if args.rewrite and (args.apple_intelligence or args.polish_model):
+    parser.error("--rewrite cannot be combined with --apple-intelligence or --polish-model")
+if args.rewrite_directions and not args.rewrite:
+    parser.error("--rewrite-directions requires --rewrite")
 if args.expect_apple_unavailable and not args.apple_intelligence:
     parser.error("--expect-apple-unavailable requires --apple-intelligence")
 app = root / ".build/DerivedData/Build/Products/Debug-iphonesimulator/wisprM.app"
@@ -50,6 +57,9 @@ try:
     if args.apple_intelligence: arguments += ["--integration-apple-intelligence"]
     arguments += ["--integration-language", args.language]
     if args.cache_text_model: arguments += ["--integration-cache-text-model", args.cache_text_model]
+    if args.rewrite:
+        arguments += ["--integration-rewrite-check", "--integration-rewrite-directions", args.rewrite_directions,
+                      "--integration-rewrite-provider", args.rewrite_provider]
     launcher = subprocess.Popen(arguments, stdout=console, stderr=subprocess.STDOUT)
     print("Waiting for the real model download/load and transcription…", flush=True)
     deadline = time.monotonic() + 1200
@@ -57,12 +67,13 @@ try:
         if report.is_file():
             result = json.loads(report.read_text())
             print(json.dumps(result, indent=2, ensure_ascii=False))
-            suffix = "-apple-intelligence" if args.apple_intelligence else "-polished" if args.polish_model else ""
+            suffix = ("-rewrite-" + args.rewrite_provider) if args.rewrite else "-apple-intelligence" if args.apple_intelligence else "-polished" if args.polish_model else ""
             archive = root / ".build" / ("integration-" + args.model + suffix + ".json")
             archive.write_text(json.dumps(result, indent=2) + "\n")
             validate_transcription(result, model=args.model, apple=args.apple_intelligence,
                 local=bool(args.polish_model), expect_apple_unavailable=args.expect_apple_unavailable,
-                cache_text=bool(args.cache_text_model))
+                cache_text=bool(args.cache_text_model),
+                                   rewrite=args.rewrite, rewrite_provider=args.rewrite_provider)
             print("Real transcription passed.")
             break
         time.sleep(1)

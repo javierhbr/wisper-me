@@ -112,6 +112,24 @@ The app sends only the completed transcript to the on-device system model, with 
 
 If polishing is disabled during a pending request, the result is discarded and local cleanup is retained. Failed polishing also preserves the recognized text. Clipboard copies stay on this device and expire ten minutes after copying. History and keyboard-publication storage are excluded from OS backup, including atomic replacements and migration of existing files. This OS policy does not erase older backups or control SDK/system caches. History is off by default; enabling it keeps at most 30 transcripts. Disabling history deletes saved history. Shared keyboard results can be cleared separately.
 
+## Rewrite an idea on request
+
+After dictation, tap **Rewrite idea** to improve the order, flow, and clarity of the message. This is a separate manual action; it works even when automatic grammar polishing is off. Add optional directions such as “Lead with the main point” or “Organize this as a clear story.” The default rewrite preserves material details and asks the model to keep facts, language, names, numbers, uncertainty, and intention.
+
+Choose Apple Intelligence, your selected on-device language model, or the model server configured in Settings. The sheet identifies server use before generation. No provider fallback occurs. On-device rewriting requires the app to remain open; model availability and the provider's input limits still apply. Directions are limited to 2,000 UTF-8 bytes. Overlong requests are rejected without silently truncating or summarizing the source.
+
+Review **Original** and **Rewrite**, then choose **Use rewrite** or **Keep original**. A proposal does not replace the current text, clipboard, history, or keyboard result. Acceptance delivers the rewrite using the usual device-local clipboard and keyboard-sharing policies; **Undo rewrite** restores the exact original. Editing the text afterwards clears Undo. Cancelling, closing the sheet, or changing the text/settings invalidates pending results.
+
+Generated-audio checks support manual rewriting independently of automatic grammar correction:
+
+```bash
+python3 scripts/integration-transcription.py --model whisper-tiny --rewrite --rewrite-directions "Lead with the main point"
+python3 scripts/integration-phone.py --device <coredevice-id> --model whisper-tiny --rewrite
+python3 scripts/integration-phone.py --device <coredevice-id> --model whisper-tiny --rewrite --rewrite-provider local
+```
+
+Fixtures verify cancellation before request creation, preservation before acceptance, acceptance, and exact Undo restoration using isolated data. They do not record the microphone or write the clipboard. The rewriting model can still make mistakes; review its proposed wording before accepting it.
+
 ## Verification
 
 ```sh

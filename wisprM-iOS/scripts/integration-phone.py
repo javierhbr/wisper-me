@@ -27,8 +27,15 @@ def main():
     parser.add_argument("--language", default="auto")
     parser.add_argument("--cache-text-model", help="Cache an MLX model without loading it or discarding speech")
     parser.add_argument("--expect-apple-unavailable", action="store_true")
+    parser.add_argument("--rewrite", action="store_true", help="Exercise manual rewrite preview, acceptance, and Undo")
+    parser.add_argument("--rewrite-directions", default="", help="Optional instructions for the idea rewrite")
+    parser.add_argument("--rewrite-provider", choices=["apple", "local"], default="apple")
     parser.add_argument("--app", type=Path, default=root / ".build/Phone/Build/Products/Debug-iphoneos/wisprM.app")
     args = parser.parse_args()
+    if args.rewrite and (args.apple_intelligence or args.polish_model):
+        parser.error("--rewrite cannot be combined with --apple-intelligence or --polish-model")
+    if args.rewrite_directions and not args.rewrite:
+        parser.error("--rewrite-directions requires --rewrite")
     if args.expect_apple_unavailable and not args.apple_intelligence:
         parser.error("--expect-apple-unavailable requires --apple-intelligence")
     with (args.app / "Info.plist").open("rb") as file:
@@ -38,7 +45,7 @@ def main():
     build = root / ".build"
     build.mkdir(exist_ok=True)
     fixture = build / "phone-generated-speech.caf"
-    suffix = "-apple-intelligence" if args.apple_intelligence else "-polished" if args.polish_model else ""
+    suffix = ("-rewrite-" + args.rewrite_provider) if args.rewrite else "-apple-intelligence" if args.apple_intelligence else "-polished" if args.polish_model else ""
     report = build / ("phone-" + args.model + suffix + ".json")
     report.write_text("{}\n")
 
@@ -77,6 +84,9 @@ def main():
             arguments += ["--integration-language", args.language]
             if args.cache_text_model:
                 arguments += ["--integration-cache-text-model", args.cache_text_model]
+            if args.rewrite:
+                arguments += ["--integration-rewrite-check", "--integration-rewrite-directions", args.rewrite_directions,
+                              "--integration-rewrite-provider", args.rewrite_provider]
             command(*arguments)
             process = launched_process(launch_record, executable)
             if process is None:
@@ -95,7 +105,8 @@ def main():
                         print(json.dumps(result, indent=2, ensure_ascii=False), flush=True)
                         validate_transcription(result, model=args.model, apple=args.apple_intelligence,
                             local=bool(args.polish_model), expect_apple_unavailable=args.expect_apple_unavailable,
-                            cache_text=bool(args.cache_text_model))
+                            cache_text=bool(args.cache_text_model),
+                                               rewrite=args.rewrite, rewrite_provider=args.rewrite_provider)
                         print("Real iPhone transcription passed.", flush=True)
                         completed = True
                         return

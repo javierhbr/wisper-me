@@ -6,7 +6,7 @@ import subprocess
 
 
 def validate_transcription(result, *, model, apple=False, local=False,
-                           expect_apple_unavailable=False, cache_text=False):
+                           expect_apple_unavailable=False, cache_text=False, rewrite=False, rewrite_provider=None):
     """Check real app reports; never manufacture a successful model response."""
     def require(condition, message):
         if not condition:
@@ -39,6 +39,29 @@ def validate_transcription(result, *, model, apple=False, local=False,
             require(result.get("textCacheDownloadRetainedSpeech") is True and result.get("loadedModel") == model,
                     "Caching a text model must retain the ready speech engine.")
 
+
+    if rewrite:
+        original, proposal = result.get("rewriteOriginal"), result.get("rewriteProposal")
+        require(result.get("rewriteRequested") is True and result.get("rewriteCompleted") is True,
+                "Manual rewrite did not complete; a retained transcript does not establish rewrite success.")
+        require(isinstance(original, str) and original.strip()
+                and isinstance(proposal, str) and proposal.strip() and result.get("rewriteError") == "",
+                "Manual rewrite must return a complete nonempty proposal without a rewrite error.")
+        for field in ("rewritePreviewPreservedOriginal", "rewritePreviewPreservedHistory", "rewritePreviewPreservedShared"):
+            require(result.get(field) is True, "Rewrite preview changed original text or delivery state: " + field)
+        require(result.get("rewriteCancelBeforeStartPreservedOriginal") is True,
+                "Cancelling a queued rewrite must preserve the original without starting a provider request.")
+        require(result.get("rewriteAccepted") is True and result.get("rewriteUndoRestoredOriginal") is True
+                and text == original,
+                "Manual rewrite must be accepted explicitly, then Undo must restore the exact original.")
+        require(result.get("rewriteAutomaticPolishingMode") == "Local cleanup only"
+                and result.get("polishingCompleted") is False,
+                "Manual rewriting must not enable or perform automatic polishing.")
+        providers = {"apple": "Apple Intelligence", "local": "On-device language model"}
+        require(result.get("rewriteProvider") in providers.values(), "Rewrite used an unexpected provider.")
+        if rewrite_provider is not None:
+            require(rewrite_provider in providers and result.get("rewriteProvider") == providers[rewrite_provider],
+                    "Rewrite did not use the requested provider.")
 
 def launched_process(path: Path, executable_name: str):
     """Read only Apple's versioned JSON interface, never terminal output."""

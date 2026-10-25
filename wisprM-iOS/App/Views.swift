@@ -46,6 +46,23 @@ struct DictationView: View {
                         Button { model.copy() } label: { Label("Copy", systemImage: "doc.on.doc") }.disabled(model.transcript.isEmpty)
                         ShareLink(item: model.transcript) { Image(systemName: "square.and.arrow.up") }.disabled(model.transcript.isEmpty)
                     }
+                    if !model.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Button(action: model.openRewrite) {
+                                Label("Rewrite idea", systemImage: "text.alignleft")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(model.busy)
+                            .accessibilityHint("Reorganize your ideas, then review the rewrite before using it.")
+                            if model.canUndoRewrite {
+                                Button("Undo rewrite", action: model.undoRewrite)
+                                    .font(.callout)
+                                    .disabled(model.busy)
+                                    .accessibilityHint("Restore the text from before your last accepted rewrite.")
+                            }
+                        }
+                    }
                 }.padding(18).background(.background.opacity(0.7), in: RoundedRectangle(cornerRadius: 20))
                 RecordingControl(model: model, recorder: model.recorder)
                 Text(model.message).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
@@ -58,8 +75,124 @@ struct DictationView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }.padding(24)
         }.background(MobileTheme.paper).toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $model.rewritePresented, onDismiss: model.dismissRewrite) {
+            IdeaRewriteView(model: model)
+        }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.audio, .movie]) { result in
             do { model.importAudio(try result.get()) } catch { model.error = error.localizedDescription }
+        }
+    }
+}
+
+struct IdeaRewriteView: View {
+    @ObservedObject var model: MobileModel
+    @State private var showingOriginal = false
+
+    private var original: String { model.rewrite.original ?? model.transcript }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Give your idea a clearer order and flow while keeping its meaning. Your original stays unchanged until you choose a rewrite.")
+                        .font(.callout)
+                }
+                if let proposal = model.rewrite.proposal {
+                    Section("Review your rewrite") {
+                        Picker("Version", selection: $showingOriginal) {
+                            Text("Original").tag(true)
+                            Text("Rewrite").tag(false)
+                        }
+                        .pickerStyle(.segmented)
+                        Text(showingOriginal ? original : proposal)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                            .accessibilityLabel(showingOriginal ? "Original text" : "Proposed rewrite")
+                            .accessibilityValue(showingOriginal ? original : proposal)
+                    }
+                    Section {
+                        Button(action: model.acceptRewrite) {
+                            Text("Use rewrite").frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Button("Keep original", action: model.keepOriginalRewrite)
+                    } footer: {
+                        Text("Using the rewrite updates your text, clipboard, and shared keyboard result. You can undo it from Dictate.")
+                    }
+                } else {
+                    Section("Rewrite with") {
+                        Picker("Text model", selection: $model.rewriteProvider) {
+                            ForEach(RewriteProvider.allCases) { provider in
+                                Text(provider.rawValue).tag(provider)
+                            }
+                        }
+                        .disabled(model.rewrite.isGenerating)
+                        Text(providerDescription)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    Section("Optional directions") {
+                        TextField("What would make this clearer?", text: $model.rewriteDirections, axis: .vertical)
+                            .lineLimit(2...5)
+                            .disabled(model.rewrite.isGenerating)
+                            .accessibilityLabel("Optional rewrite directions")
+                        Text("For example: Lead with the main point. Make this a clear story.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    Section {
+                        if model.phase == .rewriting && !model.rewrite.isGenerating {
+                            ProgressView("Finishing cancellation…")
+                        } else if model.rewrite.isGenerating {
+                            ProgressView("Reorganizing your idea…")
+                                .accessibilityLabel("Rewriting in progress")
+                            Button("Cancel rewrite", role: .cancel, action: model.cancelRewrite)
+                        } else {
+                            Button(action: model.generateRewrite) {
+                                Text(model.rewriteError == nil ? "Rewrite idea" : "Try again")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(model.busy)
+                        }
+                        if let error = model.rewriteError {
+                            Label(error, systemImage: "exclamationmark.circle")
+                                .font(.callout)
+                                .foregroundStyle(.red)
+                                .accessibilityLabel("Rewrite unavailable: " + error)
+                        }
+                    } footer: {
+                        Text("A rewrite is created only when you request it. Nothing is copied or shared until you accept it.")
+                    }
+                    Section {
+                        DisclosureGroup("Original text") {
+                            Text(original)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Rewrite idea")
+            .navigationBarTitleDisplayMode(.inline)
+            .tint(MobileTheme.green)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close", action: model.dismissRewrite)
+                }
+            }
+            .onChange(of: model.rewrite.proposal) { _, _ in showingOriginal = false }
+        }
+    }
+
+    private var providerDescription: String {
+        switch model.rewriteProvider {
+        case .appleIntelligence:
+            return "Uses Apple's on-device model. Automatic grammar polishing can stay off."
+        case .local:
+            return "Uses your selected on-device language model. Keep wisprM open while rewriting."
+        case .server:
+            return "Sends this text and your directions to the model server configured in Settings when you tap Rewrite idea."
         }
     }
 }
@@ -303,7 +436,7 @@ struct MobileSettingsView: View {
                     catch { model.error = error.localizedDescription }
                 }
                 if !keyMessage.isEmpty { Text(keyMessage).font(.caption) }
-                Text("Only used when Model server polishing is selected. Audio stays local. HTTPS is required for servers outside this iPhone; localhost refers to the phone, not your Mac.").font(.footnote).foregroundStyle(.secondary)
+                Text("Used when Model server is selected for polishing or a requested rewrite. Audio stays local. HTTPS is required for servers outside this iPhone; localhost refers to the phone, not your Mac.").font(.footnote).foregroundStyle(.secondary)
             }.disabled(model.busy)
             Section { Text("wisprM · iPhone edition\nOriginal code and branding. No account required.").font(.footnote).foregroundStyle(.secondary) }
         }.navigationTitle("Settings").scrollContentBackground(.hidden).background(MobileTheme.paper)

@@ -138,6 +138,23 @@ The generated-audio boundary regression accepted 600 seconds (9,600,000 mono sam
 
 A complete microphone recording through 9:30/10:00, the warning's physical timing/audibility and audio-route changes have not been exercised. Ten-minute recognition performance and battery use have not been measured. The latest physical generated-audio launches were blocked by the phone lock, as recorded above.
 
+## On-demand idea rewriting (2026-10-25)
+
+Rewrite idea is a separate manual action with optional directions, independent Apple/local/server provider selection, an Original/Rewrite preview, explicit acceptance or rejection, and one-level Undo. It remains usable with automatic grammar polishing off. Unaccepted proposals do not replace text, enter history, update keyboard publication, or copy to the clipboard. Acceptance uses existing delivery/privacy policies; Undo restores the exact source and removes the accepted revision's history entry.
+
+Verified:
+
+- Full suites passed: 58 root Swift tests, 36 mobile Swift tests, and 14 Python tests. The 11 new state tests cover retries, cancellation, stale generations, edited-source/ABA invalidation, bounds, acceptance, and Undo. Provider wire tests verify the distinct rewrite prompt, JSON-separated directions/source, combined input bounds, and guarded output parsing. All 16 provider tests passed again after final prompt changes.
+- Simulator Debug, signed iPhone Debug, and unsigned iPhone Release builds passed. All three providers compile with the existing pinned dependencies; server behavior is covered through the injected HTTP test transport.
+- Real Apple Intelligence fixtures in Simulator exercised automatic polishing off, cancelling before provider-task creation, generation, unchanged transcript/history/shared publication before acceptance, acceptance, and exact Undo restoration. All report assertions passed. The release-story fixture moved the tentative release suggestion first. Prompt instructions explicitly preserve modal force and every distinct fact/requested action, including secondary updates.
+- The authorized iPhone passed a real generated-audio Apple Intelligence rewrite with all preview/accept/Undo/cancellation assertions. A subsequent local MLX rewrite launch was blocked by iOS because the phone locked; the new manual MLX flow is compiled but not claimed physically verified. No microphone or clipboard was used by fixtures.
+- Simulator UI inspection exercised Original/Rewrite switching, Use rewrite, exact Undo restoration, and the provider/directions form at the default iPhone 17 Pro size. Preview accessibility includes both version labels and text values. Other size/Dynamic Type combinations were not exhaustively tested.
+- Subagent correctness, architecture/UI, and security/impact reviews approved after fixing the pre-start cancellation race and preventing automatic-polishing pressure settings from cancelling a manually selected provider.
+
+Observed model-quality limits remain: an early output changed a suggestion into a commitment, and another omitted secondary updates. Preservation instructions were strengthened, but semantic fidelity is not guaranteed by a prompt. The user must review the preview; Keep original and Undo remain available. No semantic-equivalence checker, measured battery savings, or live model-server deployment is claimed.
+
+Reports/logs are ignored under .build, including integration-whisper-tiny-rewrite-apple.json, phone-whisper-tiny-rewrite-apple.json, rewrite-tests.log and rewrite-phone-*.log. Fixtures use isolated preferences/history/shared locations and generated audio. No credentials, device identifiers or model weights are committed.
+
 ## Reproduce
 
 ```sh

@@ -4,6 +4,7 @@ import tempfile
 import types
 import unittest
 import sys
+import subprocess
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
@@ -100,6 +101,59 @@ class PhoneFixtureTests(unittest.TestCase):
         result["textModelLoaded"] = True
         with self.assertRaises(SystemExit):
             validate_transcription(result, model="whisper-tiny", cache_text=True)
+
+    @staticmethod
+    def rewrite_result():
+        return dict(PhoneFixtureTests.result(), text="Original cleanup.", polishingCompleted=False,
+                    rewriteRequested=True, rewriteProvider="Apple Intelligence",
+                    rewriteOriginal="Original cleanup.", rewriteProposal="A clearly organized idea.",
+                    rewriteError="", rewriteCompleted=True, rewritePreviewPreservedOriginal=True,
+                    rewritePreviewPreservedHistory=True, rewritePreviewPreservedShared=True,
+                    rewriteCancelBeforeStartPreservedOriginal=True,
+                    rewriteAccepted=True, rewriteUndoRestoredOriginal=True,
+                    rewriteAutomaticPolishingMode="Local cleanup only")
+
+    def test_rewrite_requires_a_real_successful_proposal_and_undo(self):
+        validate_transcription(self.rewrite_result(), model="whisper-tiny", rewrite=True)
+        for key, value in [("rewriteRequested", False), ("rewriteCompleted", False),
+                           ("rewriteProposal", ""), ("rewriteOriginal", ""),
+                           ("rewriteError", "Model unavailable"), ("rewriteAccepted", False),
+                           ("rewriteCancelBeforeStartPreservedOriginal", False),
+                           ("rewriteUndoRestoredOriginal", False), ("text", "Accepted rewrite")]:
+            with self.subTest(field=key), self.assertRaises(SystemExit):
+                validate_transcription(dict(self.rewrite_result(), **{key: value}),
+                                       model="whisper-tiny", rewrite=True)
+
+    def test_rewrite_preview_preserves_every_delivery_boundary(self):
+        for key in ["rewritePreviewPreservedOriginal", "rewritePreviewPreservedHistory", "rewritePreviewPreservedShared"]:
+            with self.subTest(field=key), self.assertRaises(SystemExit):
+                validate_transcription(dict(self.rewrite_result(), **{key: False}),
+                                       model="whisper-tiny", rewrite=True)
+
+    def test_rewrite_never_enables_automatic_polishing_or_switches_provider(self):
+        with self.assertRaises(SystemExit):
+            validate_transcription(dict(self.rewrite_result(), rewriteAutomaticPolishingMode="Apple Intelligence"),
+                                   model="whisper-tiny", rewrite=True)
+        with self.assertRaises(SystemExit):
+            validate_transcription(dict(self.rewrite_result(), polishingCompleted=True),
+                                   model="whisper-tiny", rewrite=True)
+        local = dict(self.rewrite_result(), rewriteProvider="On-device language model")
+        validate_transcription(local, model="whisper-tiny", rewrite=True, rewrite_provider="local")
+        with self.assertRaises(SystemExit):
+            validate_transcription(local, model="whisper-tiny", rewrite=True, rewrite_provider="apple")
+        with self.assertRaises(SystemExit):
+            validate_transcription(self.result(), model="whisper-tiny", rewrite=True)
+
+    def test_rewrite_driver_rejects_combined_automatic_polishing_flags(self):
+        scripts = Path(__file__).resolve().parents[1] / "scripts"
+        for name in ["integration-transcription.py", "integration-phone.py"]:
+            extra = ["--device", "unused-fixture-device"] if name == "integration-phone.py" else []
+            for flags in [["--apple-intelligence"], ["--polish-model", "test/model"]]:
+                with self.subTest(script=name, flags=flags):
+                    result = subprocess.run([sys.executable, str(scripts / name), *extra, "--rewrite", *flags],
+                                            capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn("--rewrite cannot be combined", result.stderr)
 
     @staticmethod
     def result():

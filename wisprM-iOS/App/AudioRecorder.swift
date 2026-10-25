@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import UIKit
 import WisprMobileCore
 
 @MainActor final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
@@ -7,6 +8,7 @@ import WisprMobileCore
     var level: Float { meter.level }
     @Published private(set) var seconds: TimeInterval = 0
     private var recorder: AVAudioRecorder?
+    private var warningPlayer: AVAudioPlayer?
     private var timer: Timer?
     private var meteringVisible = true
     private var interruption: NSObjectProtocol?
@@ -27,6 +29,13 @@ import WisprMobileCore
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let url = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("caf")
             attemptedURL = url
+            guard let alert = NSDataAsset(name: "RecordingWarning") else {
+                throw MobileFailure.message("The recording warning sound is missing.")
+            }
+            let warning = try AVAudioPlayer(data: alert.data)
+            guard warning.prepareToPlay() else {
+                throw MobileFailure.message("The recording warning sound could not be prepared.")
+            }
             let value = try AVAudioRecorder(url: url, settings: [
                 AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16_000,
                 AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16,
@@ -34,10 +43,15 @@ import WisprMobileCore
             ])
             attempted = value
             value.delegate = self; value.isMeteringEnabled = meteringVisible
-            guard value.prepareToRecord(), value.record(forDuration: 180) else {
+            guard value.prepareToRecord(), value.record(forDuration: RecordingLimits.maximumDuration) else {
                 throw MobileFailure.message("The microphone could not start recording.")
             }
             try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: url.path)
+            // Schedule on the audio device clock so hiding metering does not disable the alert.
+            warningPlayer = warning
+            guard warning.play(atTime: warning.deviceCurrentTime + RecordingLimits.warningTime) else {
+                throw MobileFailure.message("The recording warning sound could not be scheduled.")
+            }
             recorder = value; seconds = 0; meter.reset()
             startMeteringIfNeeded()
             interruption = NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification,
@@ -46,6 +60,7 @@ import WisprMobileCore
                     Task { @MainActor in self?.finish() }
                 }
         } catch {
+            warningPlayer?.stop(); warningPlayer = nil
             attempted?.delegate = nil; attempted?.stop()
             if let attemptedURL { try? FileManager.default.removeItem(at: attemptedURL) }
             try? session.setActive(false, options: .notifyOthersOnDeactivation)
@@ -91,6 +106,7 @@ import WisprMobileCore
         try? FileManager.default.removeItem(at: recorder.url); cleanSession()
     }
     private func cleanSession() {
+        warningPlayer?.stop(); warningPlayer = nil
         timer?.invalidate(); timer = nil; meter.reset()
         if let interruption { NotificationCenter.default.removeObserver(interruption) }; interruption = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)

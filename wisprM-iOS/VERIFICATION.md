@@ -130,6 +130,14 @@ Validated against the final source:
 
 Actual battery drain, CPU/thermal improvements, peak memory, OS backups and cross-device clipboard transfer were not measured.
 
+## Ten-minute recording and 9:30 warning (2026-10-25)
+
+The iPhone recorder now stops at 600 seconds and schedules an original 0.55-second two-tone warning at 570 seconds, leaving thirty seconds to finish. Both capture and decoding use the shared RecordingLimits maximum. AVAudioPlayer uses its audio device clock, independent of waveform visibility and UI timers. Finish, Cancel, interruption, normal completion and failed startup stop/release the player. The chime uses the current audio route and media volume.
+
+The generated-audio boundary regression accepted 600 seconds (9,600,000 mono samples) and rejected 601 seconds. The bundled WAV was inspected and included in successful Simulator/signed iPhone Debug/unsigned iPhone Release builds. Two independent source reviews approved the scheduling and cleanup paths. The installed update contains this feature.
+
+A complete microphone recording through 9:30/10:00, the warning's physical timing/audibility and audio-route changes have not been exercised. Ten-minute recognition performance and battery use have not been measured. The latest physical generated-audio launches were blocked by the phone lock, as recorded above.
+
 ## Reproduce
 
 ```sh

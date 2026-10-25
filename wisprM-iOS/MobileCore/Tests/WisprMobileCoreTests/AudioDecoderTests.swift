@@ -3,6 +3,25 @@ import AVFoundation
 @testable import WisprMobileCore
 
 final class AudioDecoderTests: XCTestCase {
+    func testTenMinuteRecordingIsAcceptedAndLongerAudioIsRejected() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("caf")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
+        let second = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 16_000)!
+        second.frameLength = 16_000
+        second.floatChannelData![0].initialize(repeating: 0, count: 16_000)
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: format.settings)
+            for _ in 0..<600 { try file.write(from: second) }
+        }
+        XCTAssertEqual(try AudioDecoder.samples(from: url).count, 9_600_000)
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: format.settings)
+            for _ in 0..<601 { try file.write(from: second) }
+        }
+        XCTAssertThrowsError(try AudioDecoder.samples(from: url))
+    }
+
     func testResamplingStopsAtEOFWithoutDiscardingValidAudio() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("caf")
         defer { try? FileManager.default.removeItem(at: url) }

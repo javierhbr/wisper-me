@@ -8,7 +8,7 @@ public enum AudioDecoder {
         guard size <= 100 * 1024 * 1024 else { throw MobileFailure.message("Audio imports are limited to 100 MB.") }
         let file = try AVAudioFile(forReading: url)
         let source = file.processingFormat
-        guard source.sampleRate > 0, Double(file.length) / source.sampleRate <= 600 else {
+        guard source.sampleRate > 0, Double(file.length) / source.sampleRate <= RecordingLimits.maximumDuration else {
             throw MobileFailure.message("Audio imports are limited to ten minutes.")
         }
         guard let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false),

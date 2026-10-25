@@ -33,7 +33,7 @@ struct DictationView: View {
             VStack(alignment: .leading, spacing: 24) {
                 HStack { Image(systemName: "waveform").font(.title); Text("wisprM").font(.title2.bold()); Spacer(); Label("ON DEVICE", systemImage: "circle.fill").font(.system(size: 9, weight: .semibold, design: .monospaced)) }.foregroundStyle(MobileTheme.green)
                 Text("A thought.\nBeautifully put.").font(.system(size: 38, weight: .regular, design: .serif))
-                Text("Speak naturally. Keep your words close.").foregroundStyle(.secondary)
+                Text("Record up to 10 minutes. A sound at 9:30 gives you 30 seconds to finish.").foregroundStyle(.secondary)
                 HStack { Text(model.preferences.speechChoice.name).font(.caption.weight(.medium)); Spacer(); Text(model.preferences.style.rawValue).font(.caption).foregroundStyle(.secondary) }
                 VStack(alignment: .leading, spacing: 12) {
                     Text(model.phase == .recording ? "LISTENING" : "YOUR WORDS")

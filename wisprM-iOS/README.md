@@ -61,7 +61,7 @@ Unsigned device output cannot be installed on a phone until it is signed and pro
 3. In **Dictate**, tap **Start dictation**, grant microphone permission, speak, then tap **Finish dictation**.
 4. Finished text is copied to the system clipboard while wisprM is active. Paste it in your destination app, or use **Copy** and the Share button.
 
-If processing finishes in the background, return to wisprM to trigger the clipboard copy. A background result can also be read by the keyboard when App Group sharing is provisioned. Recording is capped at three minutes. Audio-file imports are limited to 100 MB and ten minutes; format support is supplied by native AVFoundation, not the Mac's FFmpeg runtime.
+If processing finishes in the background, return to wisprM to trigger the clipboard copy. A background result can also be read by the keyboard when App Group sharing is provisioned. Recording stops automatically at ten minutes. A short chime at 9:30 gives you 30 seconds to finish; tapping Finish or Cancel stops the pending alert. The alert uses the current audio route and media volume. Audio-file imports are limited to 100 MB and ten minutes; format support is supplied by native AVFoundation, not the Mac's FFmpeg runtime.
 
 Phone calls and other audio interruptions end recording and process the captured portion where possible. Temporary audio is deleted after completion/cancellation; stale owned recordings are cleaned on launch. Importing audio makes a temporary private copy and never deletes the original.
 

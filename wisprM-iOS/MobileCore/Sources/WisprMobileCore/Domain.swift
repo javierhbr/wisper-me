@@ -99,15 +99,17 @@ public struct TranscriptExchange: Sendable {
     public let directory: URL
     public init(directory: URL) { self.directory = directory }
     public var file: URL { directory.appendingPathComponent("latest-transcript.json") }
+    public func excludeFromBackupsIfPresent() throws {
+        if FileManager.default.fileExists(atPath: directory.path) { try BackupExclusion.exclude(directory) }
+        if FileManager.default.fileExists(atPath: file.path) { try BackupExclusion.exclude(file) }
+    }
     public func publish(_ transcript: Transcript) throws {
         guard !transcript.text.isEmpty, transcript.text.utf8.count <= 800_000 else {
             throw MobileFailure.message("The transcript is empty or too large to share.")
         }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try BackupExclusion.prepareDirectory(at: directory)
         try JSONEncoder().encode(transcript).write(to: file, options: .atomic)
-        var location = directory
-        var flags = URLResourceValues(); flags.isExcludedFromBackup = true
-        try? location.setResourceValues(flags)
+        try BackupExclusion.exclude(file)
         #if os(iOS)
         try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: file.path)
         #endif
@@ -130,8 +132,12 @@ public struct TranscriptExchange: Sendable {
 public struct HistoryArchive: Sendable {
     public let file: URL
     public init(file: URL) { self.file = file }
+    public func excludeFromBackupsIfPresent() throws {
+        if FileManager.default.fileExists(atPath: file.path) { try BackupExclusion.exclude(file) }
+    }
     public func load() throws -> [Transcript] {
         guard FileManager.default.fileExists(atPath: file.path) else { return [] }
+        try excludeFromBackupsIfPresent()
         let count = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         guard count <= 2_000_000 else { throw MobileFailure.message("Saved history exceeds the size limit.") }
         return Array(try JSONDecoder().decode([Transcript].self, from: Data(contentsOf: file)).prefix(30))
@@ -144,6 +150,7 @@ public struct HistoryArchive: Sendable {
         }
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: file, options: .atomic)
+        try excludeFromBackupsIfPresent()
         #if os(iOS)
         try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: file.path)
         #endif

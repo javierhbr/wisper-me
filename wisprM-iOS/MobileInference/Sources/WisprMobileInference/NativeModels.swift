@@ -49,7 +49,7 @@ public actor SpeechRuntime {
         let generation = UUID()
         preparationGeneration = generation
         try Task.checkCancellation()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try BackupExclusion.prepareDirectory(at: directory)
         let cached = Self.cachedFolder(choice, directory: directory, existing: existing)
         let folder: URL
         switch choice.engine {
@@ -148,16 +148,55 @@ public actor TextRuntime {
     public init() {}
     private var container: ModelContainer?
     private var loadedID: String?
+    /// Cache artifacts without allocating a model, tokenizer, tensors, or Metal heaps.
+    @discardableResult
+    public func cacheModel(id: String, localDirectory: URL? = nil, cacheDirectory: URL? = nil,
+        progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+        let id = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard localDirectory != nil || id.range(of: #"^[\w.-]+/[\w.-]+$"#, options: .regularExpression) != nil else {
+            throw MobileFailure.message("Use a Hugging Face ID for a compatible MLX text model.")
+        }
+        if let cacheDirectory { try BackupExclusion.prepareDirectory(at: cacheDirectory) }
+        let hub = HubApi(downloadBase: cacheDirectory)
+        let folder: URL
+        if let localDirectory {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: localDirectory.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                throw MobileFailure.message("The imported text model is missing. Import its folder again from Files.")
+            }
+            try BackupExclusion.prepareDirectory(at: localDirectory)
+            folder = localDirectory
+        } else {
+            guard cacheDirectory != nil else { throw MobileFailure.message("A private text-model cache directory is required.") }
+            // Let snapshot completion repair partial/sharded caches and reuse existing files.
+            folder = try await MLXLMCommon.downloadModel(hub: hub, configuration: .init(id: id),
+                progressHandler: { progress($0.fractionCompleted) })
+        }
+        try Task.checkCancellation()
+        guard Self.hasModelAssets(folder) else {
+            throw MobileFailure.message("The text-model download is incomplete. A model configuration and safetensor weights are required.")
+        }
+        return folder
+    }
+    private static func hasModelAssets(_ directory: URL) -> Bool {
+        guard FileManager.default.fileExists(atPath: directory.appendingPathComponent("config.json").path),
+              let files = try? FileManager.default.contentsOfDirectory(at: directory,
+                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey]) else { return false }
+        return files.contains { file in
+            guard file.pathExtension == "safetensors", let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]) else { return false }
+            return values.isRegularFile == true && (values.fileSize ?? 0) > 0
+        }
+    }
     public func prepare(id: String, localDirectory: URL? = nil, cacheDirectory: URL? = nil, progress: @escaping @Sendable (Double) -> Void) async throws {
         #if targetEnvironment(simulator)
         throw MobileFailure.message("On-device MLX polishing requires a physical iPhone. The simulator does not support the Metal memory heaps it needs. Local speech recognition and formatting still work here.")
         #else
         let id = id.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard localDirectory != nil || id.range(of: #"^[\w.-]+/[\w.-]+$"#, options: .regularExpression) != nil else {
-            throw MobileFailure.message("Use a Hugging Face ID for a compatible MLX text model.")
-        }
+        let folder = try await cacheModel(id: id, localDirectory: localDirectory, cacheDirectory: cacheDirectory, progress: progress)
+        try Task.checkCancellation()
         container = nil; loadedID = nil
-        let configuration = localDirectory.map { MLXLMCommon.ModelConfiguration(directory: $0) } ?? MLXLMCommon.ModelConfiguration(id: id)
+        // A validated local configuration avoids repeated Hub metadata/hash work.
+        let configuration = MLXLMCommon.ModelConfiguration(directory: folder)
         let hub = HubApi(downloadBase: cacheDirectory)
         let model = try await LLMModelFactory.shared.loadContainer(hub: hub, configuration: configuration,
             progressHandler: { progress($0.fractionCompleted) })

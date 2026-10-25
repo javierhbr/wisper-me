@@ -42,13 +42,10 @@ def main():
     before = weights()
     assert before, "No model weights were prepared."
     report = container / "Documents/integration-restore.json"
-    reports = []
-    for forget_receipts in (False, True):
+    def startup_report(*extra):
         report.unlink(missing_ok=True)
         arguments = ["xcrun", "simctl", "launch", "--terminate-running-process", simulator, bundle,
-                     "--integration-restore-check"]
-        if forget_receipts:
-            arguments.append("--integration-forget-receipts")
+                     "--integration-restore-check", *extra]
         try:
             command(*arguments)
             deadline = time.monotonic() + 120
@@ -56,19 +53,34 @@ def main():
                 time.sleep(1)
             if not report.is_file():
                 raise SystemExit("The app did not complete its automatic startup restoration.")
-            result = json.loads(report.read_text())
-            print(json.dumps(result, indent=2), flush=True)
-            assert result["selectedModel"] == args.model, "Saved selection changed on restart."
-            assert result["loadedModel"] == args.model and result["ready"] and result["canDictate"], "The selected model did not become ready."
-            assert result["downloadAllowed"] is False, "Startup must not permit a model download."
-            assert not result["error"], result["error"]
-            assert weights() == before, "Cached model weights changed during restoration."
-            reports.append(dict(result, receiptsRecovered=forget_receipts))
+            return json.loads(report.read_text())
         finally:
             command("xcrun", "simctl", "terminate", simulator, bundle, check=False)
+
+    reports = []
+    for forget_receipts in (False, True):
+        flags = ["--integration-forget-receipts"] if forget_receipts else []
+        result = startup_report(*flags)
+        print(json.dumps(result, indent=2), flush=True)
+        assert result["selectedModel"] == args.model, "Saved selection changed on restart."
+        assert result["loadedModel"] == args.model and result["ready"] and result["canDictate"], "The selected model did not become ready."
+        assert result["downloadAllowed"] is False, "Startup must not permit a model download."
+        assert not result["error"], result["error"]
+        assert result["speechPreparationCount"] == 1, "A startup must not repeatedly prepare the engine."
+        assert result["modelStorageScanCount"] == int(forget_receipts), "Cached receipts must avoid storage rescans; recovery measures once."
+        assert weights() == before, "Cached model weights changed during restoration."
+        reports.append(dict(result, receiptsRecovered=forget_receipts))
+
+    lifecycle = startup_report("--integration-lifecycle-check")
+    print(json.dumps(lifecycle, indent=2), flush=True)
+    assert lifecycle["selectedModel"] == args.model and lifecycle["canDictate"], "Lifecycle policy lost the cached selection."
+    for key in ("foregroundPreparationDelta", "historyPreparationDelta", "settingsPreparationDelta"):
+        assert lifecycle[key] == 0, f"Unnecessary speculative model work: {key}"
+    assert weights() == before, "Lifecycle checks changed cached model weights."
+    (root / ".build" / ("lifecycle-" + args.model + ".json")).write_text(json.dumps(lifecycle, indent=2) + "\n")
     archive = root / ".build" / ("relaunch-" + args.model + ".json")
     archive.write_text(json.dumps(reports, indent=2) + "\n")
-    print("Saved selection, cache-only startup, and missing-receipt recovery passed.", flush=True)
+    print("Saved selection, cache-only startup, receipt reuse/recovery, and lifecycle preload policy passed.", flush=True)
 
 
 if __name__ == "__main__":

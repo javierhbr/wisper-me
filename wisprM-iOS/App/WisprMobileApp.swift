@@ -9,13 +9,17 @@ import AppIntents
             MobileRootView(model: model)
                 .onChange(of: scenePhase) { _, phase in
                     model.recorder.setMeteringVisible(phase == .active && model.tab == 0)
-                    if phase == .active {
-                        model.copyWhenActive(); model.refreshAppleIntelligenceAvailability()
-                        if !MobilePaths.integration { model.restoreSelectedSpeechModelIfNeeded() }
-                    } else { model.suspendLocalPolishing() }
+                    model.sceneChanged(phase)
                 }
                 .onChange(of: model.tab) { _, tab in
                     model.recorder.setMeteringVisible(scenePhase == .active && tab == 0)
+                    model.dictateVisibilityChanged()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+                    model.handleMemoryWarning()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: ProcessInfo.thermalStateDidChangeNotification)) { _ in
+                    model.handleResourcePressure()
                 }
                 .onOpenURL { url in if url.scheme == "wisprm" { model.tab = 0 } }
                 .onReceive(NotificationCenter.default.publisher(for: .init("com.wisprm.mobile.openDictation"))) { _ in model.tab = 0 }
@@ -29,7 +33,7 @@ import AppIntents
                     #endif
                     await model.restoreSpeechOnLaunch()
                     #if DEBUG
-                    model.reportRestorationIfRequested()
+                    await model.reportRestorationIfRequested()
                     #endif
                 }
         }

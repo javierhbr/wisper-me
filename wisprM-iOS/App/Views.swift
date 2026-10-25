@@ -215,7 +215,7 @@ struct MobileModelsView: View {
                         Button("Use a model ID instead") { model.preferences.localTextFolder = nil; model.preferences.localTextModel = "mlx-community/Qwen2.5-0.5B-Instruct-4bit" }.disabled(model.busy)
                     }
                     Button("Import MLX text model folder from Files") { importingText = true; importingFolder = true }.disabled(model.busy)
-                    Button("Download & load text model", action: model.loadTextModel).disabled(model.busy)
+                    Button("Download text model", action: model.loadTextModel).disabled(model.busy)
                     Text("Compatible MLX language models only. A small 4-bit model is recommended. Speech weights are unloaded before polishing to reduce memory use.").font(.footnote).foregroundStyle(.secondary)
                 } else if model.preferences.polishMode == .server {
                     Text("Configure an HTTPS chat-completions server in Settings. Transcript text will leave this iPhone; audio remains local.").font(.footnote).foregroundStyle(.secondary)
@@ -283,7 +283,9 @@ struct MobileSettingsView: View {
             }.disabled(model.busy)
             Section("Privacy") {
                 Toggle("Keep local history", isOn: $model.preferences.historyEnabled)
-                Text("Off by default. Turning it off deletes saved history. Temporary audio is removed after processing or cancellation.").font(.footnote).foregroundStyle(.secondary)
+                Text("History is off by default and saved history is marked excluded from device backups. Turning it off deletes history in this app; earlier backups are not changed.").font(.footnote).foregroundStyle(.secondary)
+                Text("Clipboard copies do not use Universal Clipboard and expire after 10 minutes. Paste them into another app on this iPhone before they expire.").font(.footnote).foregroundStyle(.secondary)
+                Text("Temporary audio is removed after processing or cancellation.").font(.footnote).foregroundStyle(.secondary)
                 Button("Clear shared keyboard transcript", action: model.clearSharedText)
             }
             Section("wisprM keyboard") {

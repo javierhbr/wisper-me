@@ -31,6 +31,14 @@ import WisprMobileInference
     private let textRuntime = TextRuntime()
     private let server = Polisher()
     private var work: Task<Void, Never>?
+    private var initialRestoreAttempted = false
+    private var speculativeSpeechPreparation = false
+    private var cachingTextModel = false
+    private var pressureReleaseRequested = false
+    private var backgroundIdleExpired = false
+    private var idleReleaseTask: Task<Void, Never>?
+    // Only this owner releases ASR; new preparation awaits it before loading.
+    private var speechReleaseTask: Task<Void, Never>?
     private var preparationProgressID = UUID()
     private var polishTask: Task<String, Error>?
     private var recordingPreferences: MobilePreferences?
@@ -40,6 +48,12 @@ import WisprMobileInference
     private var integrationUnpolishedText = ""
     private var integrationPolishingCompleted = false
     private var integrationSpeechDownloadAllowed = true
+    private var integrationSpeechPreparationCount = 0
+    private var integrationModelStorageScanCount = 0
+    private var integrationTextCacheDownloadCompleted = false
+    private var integrationTextCacheDownloadRetainedSpeech = false
+    private var integrationResourcePressureDuringRun = false
+    private var integrationLifecycleDeltas: [String: Int] = [:]
     #endif
     private var backgroundTask = UIBackgroundTaskIdentifier.invalid
     var busy: Bool { phase != .idle }
@@ -71,21 +85,33 @@ import WisprMobileInference
     }
     var canDictate: Bool { ready || cachedSpeechFolder != nil }
 
-    func restoreSelectedSpeechModelIfNeeded() {
-        guard !busy, !ready, cachedSpeechFolder != nil else { return }
-        beginSpeechLoad(allowDownload: false)
+    private var resourcePressure: InferenceResourcePressure {
+        switch ProcessInfo.processInfo.thermalState {
+        case .critical: return .critical
+        case .serious: return .constrained
+        default: return pressureReleaseRequested ? .constrained : .normal
+        }
+    }
+    func restoreSelectedSpeechModelIfNeeded(trigger: SpeechPreloadTrigger = .dictateSelected) {
+        guard InferenceEnergyPolicy.shouldPreloadSpeech(trigger: trigger,
+            dictateVisible: tab == 0 && UIApplication.shared.applicationState != .background, pressure: resourcePressure),
+            !busy, !ready, cachedSpeechFolder != nil else { return }
+        beginSpeechLoad(allowDownload: false, speculative: true)
     }
     func restoreSpeechOnLaunch() async {
-        restoreSelectedSpeechModelIfNeeded()
+        guard !initialRestoreAttempted else { return }
+        initialRestoreAttempted = true
+        restoreSelectedSpeechModelIfNeeded(trigger: .coldLaunch)
         if let work { await work.value }
     }
     func loadSpeech() { beginSpeechLoad(allowDownload: true) }
-    private func beginSpeechLoad(allowDownload: Bool) {
+    private func beginSpeechLoad(allowDownload: Bool, speculative: Bool = false) {
         guard !busy else { return }
+        speculativeSpeechPreparation = speculative
         let choice = preferences.speechChoice
         phase = .preparing; progress = 0; error = nil
         work = Task {
-            defer { phase = .idle; work = nil }
+            defer { phase = .idle; work = nil; speculativeSpeechPreparation = false; releaseSpeechIfNeeded() }
             do { try await prepareSpeech(choice, allowDownload: allowDownload) }
             catch {
                 await speech.unload(); loadedID = nil
@@ -95,6 +121,8 @@ import WisprMobileInference
         }
     }
     private func prepareSpeech(_ choice: SpeechChoice, allowDownload: Bool) async throws {
+        if let release = speechReleaseTask { await release.value }
+        try Task.checkCancellation()
         let progressID = UUID()
         preparationProgressID = progressID
         defer {
@@ -108,6 +136,7 @@ import WisprMobileInference
         message = cached != nil ? "Loading cached \(choice.name)…" : "Downloading \(choice.name)…"
         #if DEBUG
         integrationSpeechDownloadAllowed = allowDownload
+        integrationSpeechPreparationCount += 1
         #endif
         await textRuntime.unload(); textModelID = nil
         let folder = try await speech.prepare(choice, directory: MobilePaths.models, existing: cached,
@@ -120,8 +149,15 @@ import WisprMobileInference
             })
         try Task.checkCancellation()
         let bytes: Int64
-        do { bytes = try await Task.detached(priority: .utility) { try ModelReceipt.measure(folder) }.value }
-        catch { throw MobileFailure.message("Model storage inspection failed: \(error.localizedDescription)") }
+        if let receipt = receipts[choice.id], InferenceEnergyPolicy.reuseReceipt(recordedFolder: receipt.folder,
+            cachedFolder: cached, loadedFolder: folder, bytes: receipt.bytes) { bytes = receipt.bytes }
+        else {
+            #if DEBUG
+            integrationModelStorageScanCount += 1
+            #endif
+            do { bytes = try await Task.detached(priority: .utility) { try ModelReceipt.measure(folder) }.value }
+            catch { throw MobileFailure.message("Model storage inspection failed: \(error.localizedDescription)") }
+        }
         try Task.checkCancellation()
         let prefix = MobilePaths.models.path + "/"
         guard folder.path.hasPrefix(prefix) else { throw MobileFailure.message("The model was loaded outside its storage directory.") }
@@ -133,18 +169,25 @@ import WisprMobileInference
     func loadTextModel() {
         guard !busy else { return }
         let id = preferences.localTextModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        phase = .preparing; progress = 0; message = "Downloading or loading the text model…"; error = nil
+        let local = localTextDirectory(preferences)
+        phase = .preparing; progress = 0; message = "Downloading text model…"; error = nil
+        cachingTextModel = true
         work = Task {
-            defer { phase = .idle; work = nil }
+            defer { phase = .idle; work = nil; cachingTextModel = false; releaseSpeechIfNeeded() }
             do {
-                await speech.unload(); loadedID = nil
-                try await textRuntime.prepare(id: id, localDirectory: localTextDirectory(preferences), cacheDirectory: MobilePaths.models.appendingPathComponent("Text")) { [weak self] value in
-                    Task { @MainActor in if self?.phase == .preparing { self?.progress = value } }
+                if let release = speechReleaseTask { await release.value }
+                try Task.checkCancellation()
+                try MobilePaths.prepareModels()
+                try await textRuntime.cacheModel(id: id, localDirectory: local, cacheDirectory: MobilePaths.models.appendingPathComponent("Text")) { [weak self] value in
+                    Task { @MainActor in if self?.cachingTextModel == true { self?.progress = value } }
                 }
-                textModelID = id; message = "Text model downloaded. Your cached speech model will load when dictation starts."
+                message = "Text model downloaded. It will load when local polishing runs."
+                #if DEBUG
+                integrationTextCacheDownloadCompleted = true
+                integrationTextCacheDownloadRetainedSpeech = ready
+                #endif
             } catch {
-                textModelID = nil
-                if error is CancellationError { message = "Text model loading cancelled." }
+                if error is CancellationError { message = "Text model download cancelled." }
                 else { self.error = error.localizedDescription }
             }
         }
@@ -156,7 +199,7 @@ import WisprMobileInference
         let snapshot = preferences; recordingPreferences = snapshot
         phase = ready ? .authorizing : .preparing; error = nil
         work = Task {
-            defer { work = nil }
+            defer { work = nil; releaseSpeechIfNeeded() }
             do {
                 if !ready { try await prepareSpeech(snapshot.speechChoice, allowDownload: false) }
                 try Task.checkCancellation()
@@ -183,7 +226,7 @@ import WisprMobileInference
             defer {
                 try? FileManager.default.removeItem(at: url)
                 endBackgroundWork()
-                phase = .idle; work = nil; polishTask = nil
+                phase = .idle; work = nil; polishTask = nil; releaseSpeechIfNeeded()
             }
             do {
                 let conversion = Task.detached(priority: .userInitiated) { try AudioDecoder.samples(from: url) }
@@ -209,8 +252,15 @@ import WisprMobileInference
                     phase = .polishing; message = "Polishing your words…"
                     let original = text
                     let polishing = Task<String, Error> {
+                        guard !InferenceEnergyPolicy.cancelPolishing(mode: snapshot.polishMode, pressure: resourcePressure) else {
+                            throw MobileFailure.message("Polishing was skipped to reduce memory or thermal pressure.")
+                        }
                         if snapshot.polishMode == .appleIntelligence {
-                            await speech.unload(); loadedID = nil
+                            let availability = AppleIntelligencePolisher.availability(language: snapshot.language)
+                            guard availability.isAvailable else { throw MobileFailure.message(availability.message) }
+                            let retainSpeech = InferenceEnergyPolicy.retainSpeechForApple(
+                                foreground: UIApplication.shared.applicationState == .active, pressure: resourcePressure)
+                            if !retainSpeech { await speech.unload(); loadedID = nil }
                             await textRuntime.unload(); textModelID = nil
                             return try await AppleIntelligencePolisher.polish(original,
                                 language: snapshot.language, style: snapshot.style.rawValue)
@@ -272,7 +322,8 @@ import WisprMobileInference
     }
     func copy() {
         guard !transcript.isEmpty else { return }
-        UIPasteboard.general.string = transcript; needsCopy = false; message = "Copied. Paste your text into another app."
+        TranscriptClipboardPolicy.copy(transcript)
+        needsCopy = false; message = "Copied on this iPhone for 10 minutes. Paste your text into another app."
     }
     func copyWhenActive() {
         if let exchange = MobilePaths.exchange, (try? exchange.latest()) == nil { try? exchange.clear() }
@@ -281,12 +332,71 @@ import WisprMobileInference
     func suspendLocalPolishing() {
         if phase == .polishing && preferences.polishMode.requiresForeground { polishTask?.cancel() }
     }
+    func sceneChanged(_ scene: ScenePhase) {
+        if scene == .active {
+            idleReleaseTask?.cancel(); idleReleaseTask = nil
+            backgroundIdleExpired = false
+            copyWhenActive()
+            refreshAppleIntelligenceAvailability()
+            // Returning from a paste must not trigger another expensive preload.
+            restoreSelectedSpeechModelIfNeeded(trigger: .foregroundReturn)
+        } else {
+            suspendLocalPolishing()
+            guard scene == .background else { return }
+            cancelSpeculativeSpeechPreparation()
+            idleReleaseTask?.cancel()
+            idleReleaseTask = Task { [weak self] in
+                do { try await Task.sleep(for: .seconds(60)) }
+                catch { return }
+                guard let self, UIApplication.shared.applicationState == .background else { return }
+                self.backgroundIdleExpired = true
+                self.releaseSpeechIfNeeded()
+                self.idleReleaseTask = nil
+            }
+        }
+    }
+    func dictateVisibilityChanged() {
+        if tab != 0 { cancelSpeculativeSpeechPreparation() }
+        else if !MobilePaths.integration { restoreSelectedSpeechModelIfNeeded() }
+    }
+    private func cancelSpeculativeSpeechPreparation() {
+        if speculativeSpeechPreparation && !cachingTextModel { cancel() }
+    }
+    func handleResourcePressure() {
+        guard resourcePressure != .normal else { return }
+        requestResourceRelease()
+    }
+    func handleMemoryWarning() {
+        requestResourceRelease()
+    }
+    private func requestResourceRelease() {
+        pressureReleaseRequested = true
+        #if DEBUG
+        integrationResourcePressureDuringRun = true
+        #endif
+        cancelSpeculativeSpeechPreparation()
+        if InferenceEnergyPolicy.cancelPolishing(mode: preferences.polishMode, pressure: resourcePressure) {
+            polishTask?.cancel()
+        }
+        releaseSpeechIfNeeded()
+    }
+    private func releaseSpeechIfNeeded() {
+        guard !busy, speechReleaseTask == nil,
+              pressureReleaseRequested || backgroundIdleExpired else { return }
+        loadedID = nil
+        speechReleaseTask = Task {
+            // Invalidate readiness before awaiting; new preparation waits for this owner.
+            await speech.unload()
+            speechReleaseTask = nil
+            pressureReleaseRequested = false
+        }
+    }
     func refreshAppleIntelligenceAvailability() {
         appleIntelligenceStatus = AppleIntelligencePolisher.availability(language: preferences.language)
     }
     func cancel() {
         preparationProgressID = UUID()
-        if phase == .recording { recorder.cancel(); phase = .idle; message = "Recording cancelled."; return }
+        if phase == .recording { recorder.cancel(); phase = .idle; message = "Recording cancelled."; releaseSpeechIfNeeded(); return }
         guard busy else { return }
         phase = .cancelling; message = "Cancelling. Waiting for the current model operation to finish…"
         polishTask?.cancel(); work?.cancel()
@@ -345,6 +455,8 @@ import WisprMobileInference
             defer { if access { source.stopAccessingSecurityScopedResource() } }
             let relative = "Imported/" + UUID().uuidString
             let folder = MobilePaths.models.appendingPathComponent(relative)
+            do { try MobilePaths.prepareModels() }
+            catch { self.error = error.localizedDescription; return }
             let copy = Task.detached(priority: .utility) {
                 try ModelFolderImport.copy(from: source, to: folder)
                 return try ModelReceipt.measure(folder)
@@ -411,13 +523,33 @@ import WisprMobileInference
               args.contains("--integration-forget-receipts") else { return }
         receipts = [:]; defaults.removeObject(forKey: "mobile.models.v1")
     }
-    func reportRestorationIfRequested() {
+    func reportRestorationIfRequested() async {
+        if ProcessInfo.processInfo.arguments.contains("--integration-lifecycle-check") {
+            unload()
+            if let current = work { await current.value }
+            var before = integrationSpeechPreparationCount
+            sceneChanged(.background); sceneChanged(.active)
+            if let current = work { await current.value }
+            integrationLifecycleDeltas["foregroundPreparationDelta"] = integrationSpeechPreparationCount - before
+            before = integrationSpeechPreparationCount
+            tab = 2; dictateVisibilityChanged(); restoreSelectedSpeechModelIfNeeded()
+            if let current = work { await current.value }
+            integrationLifecycleDeltas["historyPreparationDelta"] = integrationSpeechPreparationCount - before
+            before = integrationSpeechPreparationCount
+            tab = 3; dictateVisibilityChanged(); restoreSelectedSpeechModelIfNeeded()
+            if let current = work { await current.value }
+            integrationLifecycleDeltas["settingsPreparationDelta"] = integrationSpeechPreparationCount - before
+            tab = 0
+        }
         guard ProcessInfo.processInfo.arguments.contains("--integration-restore-check") else { return }
-        let report: [String: Any] = ["selectedModel": preferences.modelID, "loadedModel": loadedID ?? "",
+        var report: [String: Any] = ["selectedModel": preferences.modelID, "loadedModel": loadedID ?? "",
             "ready": ready, "downloadAllowed": integrationSpeechDownloadAllowed,
             "cachedModel": cachedSpeechFolder != nil, "canDictate": canDictate, "error": error ?? "",
             "lowPowerMode": ProcessInfo.processInfo.isLowPowerModeEnabled,
             "thermalState": ProcessInfo.processInfo.thermalState.rawValue]
+        report["speechPreparationCount"] = integrationSpeechPreparationCount
+        report["modelStorageScanCount"] = integrationModelStorageScanCount
+        report.merge(integrationLifecycleDeltas) { _, new in new }
         let file = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents/integration-restore.json")
         if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: file, options: .atomic)
@@ -449,6 +581,12 @@ import WisprMobileInference
         let started = Date()
         loadSpeech()
         if let current = work { await current.value }
+        if ready, let cache = args.firstIndex(of: "--integration-cache-text-model"), cache + 1 < args.count {
+            preferences.localTextModel = args[cache + 1]; preferences.localTextFolder = nil
+            loadTextModel()
+            if let current = work { await current.value }
+        }
+        integrationResourcePressureDuringRun = integrationResourcePressureDuringRun || resourcePressure != .normal
         if ready {
             process(file, snapshot: preferences)
             if let current = work { await current.value }
@@ -456,7 +594,11 @@ import WisprMobileInference
         refreshAppleIntelligenceAvailability()
         let result: [String: Any] = ["model": preferences.modelID, "text": transcript,
             "error": error ?? "", "seconds": Date().timeIntervalSince(started), "sharedContainer": MobilePaths.group != nil,
-            "loadedModel": loadedID ?? "", "polishingProvider": preferences.polishMode.rawValue,
+            "loadedModel": loadedID ?? "", "resourcePressureDuringRun": integrationResourcePressureDuringRun,
+        "textCacheDownloadCompleted": integrationTextCacheDownloadCompleted,
+        "textCacheDownloadRetainedSpeech": integrationTextCacheDownloadRetainedSpeech,
+        "textModelLoaded": textModelID != nil,
+        "polishingProvider": preferences.polishMode.rawValue,
             "polishingCompleted": integrationPolishingCompleted, "unpolishedText": integrationUnpolishedText, "canDictate": canDictate,
             "appleIntelligenceAvailable": appleIntelligenceStatus.isAvailable, "appleIntelligenceStatus": appleIntelligenceStatus.message,
             "lowPowerMode": ProcessInfo.processInfo.isLowPowerModeEnabled,

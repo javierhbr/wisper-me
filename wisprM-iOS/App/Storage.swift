@@ -18,12 +18,17 @@ enum MobilePaths {
     static let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: TranscriptExchange.appGroup)
     static var exchange: TranscriptExchange? { group.map { TranscriptExchange(directory: $0.appendingPathComponent(integration ? "IntegrationTranscripts" : "Transcripts")) } }
     static let archive = HistoryArchive(file: support.appendingPathComponent("history.json"))
+    static func prepareModels() throws {
+        try BackupExclusion.prepareDirectory(at: models)
+    }
     static func prepare() throws {
-        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: recordings, withIntermediateDirectories: true)
-        var location = recordings
-        var flags = URLResourceValues(); flags.isExcludedFromBackup = true
-        try? location.setResourceValues(flags)
+        // These are app-owned paths only. Protect existing installations as well
+        // as fresh directories before downloads or history writes can occur.
+        try BackupExclusion.prepareDirectory(at: support)
+        try prepareModels()
+        try BackupExclusion.prepareDirectory(at: recordings)
+        try archive.excludeFromBackupsIfPresent()
+        try exchange?.excludeFromBackupsIfPresent()
         for file in try FileManager.default.contentsOfDirectory(at: recordings, includingPropertiesForKeys: nil) {
             try FileManager.default.removeItem(at: file)
         }

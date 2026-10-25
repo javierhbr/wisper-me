@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import time
 from simulator import choose, install
+from phone_fixture import validate_transcription
 
 root = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
@@ -21,7 +22,11 @@ polishing.add_argument("--polish-model")
 polishing.add_argument("--apple-intelligence", action="store_true")
 parser.add_argument("--phrase", default="The quick brown fox jumps over the lazy dog.")
 parser.add_argument("--language", default="auto")
+parser.add_argument("--cache-text-model", help="Cache MLX weights without warming inference")
+parser.add_argument("--expect-apple-unavailable", action="store_true")
 args = parser.parse_args()
+if args.expect_apple_unavailable and not args.apple_intelligence:
+    parser.error("--expect-apple-unavailable requires --apple-intelligence")
 app = root / ".build/DerivedData/Build/Products/Debug-iphonesimulator/wisprM.app"
 if not app.is_dir(): raise SystemExit("Run make build first.")
 def run(*arguments, **options): return subprocess.run(list(arguments), check=True, text=True, **options)
@@ -44,6 +49,7 @@ try:
     if args.polish_model: arguments += ["--integration-polish-model", args.polish_model]
     if args.apple_intelligence: arguments += ["--integration-apple-intelligence"]
     arguments += ["--integration-language", args.language]
+    if args.cache_text_model: arguments += ["--integration-cache-text-model", args.cache_text_model]
     launcher = subprocess.Popen(arguments, stdout=console, stderr=subprocess.STDOUT)
     print("Waiting for the real model download/load and transcription…", flush=True)
     deadline = time.monotonic() + 1200
@@ -54,8 +60,9 @@ try:
             suffix = "-apple-intelligence" if args.apple_intelligence else "-polished" if args.polish_model else ""
             archive = root / ".build" / ("integration-" + args.model + suffix + ".json")
             archive.write_text(json.dumps(result, indent=2) + "\n")
-            if result.get("error") or not result.get("text", "").strip(): raise SystemExit(1)
-            if (args.apple_intelligence or args.polish_model) and not result.get("polishingCompleted"): raise SystemExit(1)
+            validate_transcription(result, model=args.model, apple=args.apple_intelligence,
+                local=bool(args.polish_model), expect_apple_unavailable=args.expect_apple_unavailable,
+                cache_text=bool(args.cache_text_model))
             print("Real transcription passed.")
             break
         time.sleep(1)

@@ -9,6 +9,7 @@ import WisprMobileCore
     @Published private(set) var seconds: TimeInterval = 0
     private var recorder: AVAudioRecorder?
     private var warningPlayer: AVAudioPlayer?
+    private var idleTimerWasDisabled: Bool?
     private var timer: Timer?
     private var meteringVisible = true
     private var interruption: NSObjectProtocol?
@@ -46,6 +47,7 @@ import WisprMobileCore
             guard value.prepareToRecord(), value.record(forDuration: RecordingLimits.maximumDuration) else {
                 throw MobileFailure.message("The microphone could not start recording.")
             }
+            holdScreenAwake()
             try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: url.path)
             // Schedule on the audio device clock so hiding metering does not disable the alert.
             warningPlayer = warning
@@ -61,6 +63,7 @@ import WisprMobileCore
                 }
         } catch {
             warningPlayer?.stop(); warningPlayer = nil
+            restoreScreenAutoLock()
             attempted?.delegate = nil; attempted?.stop()
             if let attemptedURL { try? FileManager.default.removeItem(at: attemptedURL) }
             try? session.setActive(false, options: .notifyOthersOnDeactivation)
@@ -105,8 +108,44 @@ import WisprMobileCore
         self.recorder = nil; recorder.delegate = nil; recorder.stop()
         try? FileManager.default.removeItem(at: recorder.url); cleanSession()
     }
+    private func holdScreenAwake() {
+        if idleTimerWasDisabled == nil {
+            idleTimerWasDisabled = UIApplication.shared.isIdleTimerDisabled
+        }
+        UIApplication.shared.isIdleTimerDisabled = true
+    }
+    private func restoreScreenAutoLock() {
+        guard let previous = idleTimerWasDisabled else { return }
+        idleTimerWasDisabled = nil
+        UIApplication.shared.isIdleTimerDisabled = previous
+    }
+
+    #if DEBUG
+    /// Exercise the actual UIKit override without accessing the microphone.
+    func verifyRecordingScreenAwakePolicy() -> Bool {
+        guard recorder == nil, idleTimerWasDisabled == nil else { return false }
+        let initial = UIApplication.shared.isIdleTimerDisabled
+        defer {
+            restoreScreenAutoLock()
+            UIApplication.shared.isIdleTimerDisabled = initial
+        }
+        for previous in [false, true] {
+            UIApplication.shared.isIdleTimerDisabled = previous
+            holdScreenAwake()
+            holdScreenAwake()
+            guard UIApplication.shared.isIdleTimerDisabled else { return false }
+            restoreScreenAutoLock()
+            guard UIApplication.shared.isIdleTimerDisabled == previous else { return false }
+            restoreScreenAutoLock()
+            guard UIApplication.shared.isIdleTimerDisabled == previous else { return false }
+        }
+        return true
+    }
+    #endif
+
     private func cleanSession() {
         warningPlayer?.stop(); warningPlayer = nil
+        restoreScreenAutoLock()
         timer?.invalidate(); timer = nil; meter.reset()
         if let interruption { NotificationCenter.default.removeObserver(interruption) }; interruption = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)

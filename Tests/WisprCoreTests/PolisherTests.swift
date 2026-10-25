@@ -89,6 +89,7 @@ final class PolisherTests: XCTestCase {
             }
             let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
             XCTAssertEqual(json["max_tokens"] as? Int, 4096)
+            XCTAssertEqual(json["temperature"] as? Double, 0.1)
             XCTAssertEqual(json["stream"] as? Bool, false)
             requestSeen.fulfill()
         }))
@@ -122,6 +123,10 @@ final class PolisherTests: XCTestCase {
             XCTAssertEqual(messages.map { $0["role"]! }, ["system", "user"])
             let instructions = messages[0]["content"]!
             XCTAssertTrue(instructions.contains("Reorganize"))
+            XCTAssertTrue(instructions.contains("new composition"))
+            XCTAssertTrue(instructions.contains("Do more than proofread or copy"))
+            XCTAssertTrue(instructions.contains("reorder related ideas"))
+            XCTAssertEqual(json["temperature"] as? Double, 0.3)
             XCTAssertTrue(instructions.contains("uncertainty"))
             XCTAssertTrue(instructions.contains("suggestions, requests, possibilities, and conditional statements"))
             XCTAssertTrue(instructions.contains("must not become decisions, promises, obligations, or certainties"))

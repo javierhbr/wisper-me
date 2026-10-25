@@ -57,17 +57,21 @@ public enum AppleIntelligencePolisher {
         let status = availability(language: language)
         guard status.isAvailable else { throw MobileFailure.message(status.message) }
         let input = try IdeaRewritePrompt.input(text: text, directions: directions, maximumBytes: 6_000)
-        return try await generate(text, input: input, instructions: IdeaRewritePrompt.instructions(style: style))
+        return try await generate(text, input: input, instructions: IdeaRewritePrompt.instructions(style: style), rewriting: true)
     }
 
-    private static func generate(_ text: String, input: String, instructions: String) async throws -> String {
+    private static func generate(_ text: String, input: String, instructions: String, rewriting: Bool = false) async throws -> String {
         guard #available(iOS 26, macOS 26, *) else {
             throw MobileFailure.message("Apple Intelligence text editing requires iOS 26 or later.")
         }
         try Task.checkCancellation()
         let session = LanguageModelSession(model: .default, instructions: instructions)
-        let response = try await session.respond(to: input, generating: EditedTranscript.self,
-            options: GenerationOptions(sampling: .greedy))
+        // Fresh, unseeded sampling lets an explicit rerun explore another wording.
+        // Grammar correction keeps its existing greedy decoding.
+        let options = rewriting
+            ? GenerationOptions(sampling: .random(top: 20), temperature: 0.3)
+            : GenerationOptions(sampling: .greedy)
+        let response = try await session.respond(to: input, generating: EditedTranscript.self, options: options)
         try Task.checkCancellation()
         return try LocalPolishingOutput.clean(response.content.text, original: text)
     }

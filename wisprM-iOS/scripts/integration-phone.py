@@ -23,15 +23,26 @@ def main():
     polishing = parser.add_mutually_exclusive_group()
     polishing.add_argument("--polish-model")
     polishing.add_argument("--apple-intelligence", action="store_true")
-    parser.add_argument("--phrase", default="The quick brown fox jumps over the lazy dog.")
+    parser.add_argument("--phrase", default=None)
     parser.add_argument("--language", default="auto")
     parser.add_argument("--cache-text-model", help="Cache an MLX model without loading it or discarding speech")
     parser.add_argument("--expect-apple-unavailable", action="store_true")
     parser.add_argument("--rewrite", action="store_true", help="Exercise manual rewrite preview, acceptance, and Undo")
     parser.add_argument("--rewrite-directions", default="", help="Optional instructions for the idea rewrite")
     parser.add_argument("--rewrite-provider", choices=["apple", "local"], default="apple")
+    parser.add_argument("--rewrite-goal", choices=["default", "main-point-first", "clear-story", "professional", "custom"], help="Goal preset; defaults to Custom with directions, otherwise Default")
     parser.add_argument("--app", type=Path, default=root / ".build/Phone/Build/Products/Debug-iphoneos/wisprM.app")
     args = parser.parse_args()
+    if args.phrase is None:
+        args.phrase = ("The microphone works now. We still have keyboard testing left. We should tell the team today. I think we should delay the release until Friday because the keyboard is not fully tested."
+                       if args.rewrite else "The quick brown fox jumps over the lazy dog.")
+    if args.rewrite_goal is not None and not args.rewrite:
+        parser.error("--rewrite-goal requires --rewrite")
+    args.rewrite_goal = args.rewrite_goal or ("custom" if args.rewrite_directions.strip() else "default")
+    if args.rewrite and args.rewrite_goal == "custom" and not args.rewrite_directions.strip():
+        parser.error("Custom rewrite goal requires --rewrite-directions")
+    if args.rewrite_directions and args.rewrite_goal != "custom":
+        parser.error("--rewrite-directions requires the Custom goal")
     if args.rewrite and (args.apple_intelligence or args.polish_model):
         parser.error("--rewrite cannot be combined with --apple-intelligence or --polish-model")
     if args.rewrite_directions and not args.rewrite:
@@ -86,7 +97,8 @@ def main():
                 arguments += ["--integration-cache-text-model", args.cache_text_model]
             if args.rewrite:
                 arguments += ["--integration-rewrite-check", "--integration-rewrite-directions", args.rewrite_directions,
-                              "--integration-rewrite-provider", args.rewrite_provider]
+                              "--integration-rewrite-provider", args.rewrite_provider,
+                      "--integration-rewrite-goal", args.rewrite_goal]
             command(*arguments)
             process = launched_process(launch_record, executable)
             if process is None:

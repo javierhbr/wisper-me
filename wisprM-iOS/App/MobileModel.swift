@@ -37,6 +37,9 @@ import WisprMobileInference
     @Published var rewriteProvider = RewriteProvider.appleIntelligence {
         didSet { if oldValue != rewriteProvider { cancelRewrite(); rewriteError = nil } }
     }
+    @Published var rewriteGoal = RewriteGoal.defaultClarity {
+        didSet { if oldValue != rewriteGoal { cancelRewrite(); rewriteError = nil } }
+    }
     @Published var rewriteDirections = "" {
         didSet { if oldValue != rewriteDirections { cancelRewrite(); rewriteError = nil } }
     }
@@ -338,6 +341,7 @@ import WisprMobileInference
         guard !busy, !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         rewrite.cancel()
         rewriteDirections = ""
+        rewriteGoal = .defaultClarity
         switch preferences.polishMode {
         case .off, .appleIntelligence: rewriteProvider = .appleIntelligence
         case .local: rewriteProvider = .local
@@ -350,9 +354,16 @@ import WisprMobileInference
     func generateRewrite() {
         guard !busy, !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let source = transcript
-        let directions = rewriteDirections
+        let customDirections = rewriteDirections
+        let goal = rewriteGoal
+        if goal == .custom && customDirections.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            rewriteError = "Add directions for Custom, or choose a preset goal."
+            return
+        }
+        let directions = goal.directions(custom: customDirections)
         let provider = rewriteProvider
         let snapshot = preferences
+        let style = goal == .professional ? WritingStyle.professional : snapshot.style
         let maximumBytes = provider == .appleIntelligence ? 6_000 : provider == .local ? 32_000 : 64 * 1024
         do {
             _ = try IdeaRewritePrompt.input(text: source, directions: directions, maximumBytes: maximumBytes)
@@ -386,7 +397,7 @@ import WisprMobileInference
                         await speech.unload(); loadedID = nil
                     }
                     return try await AppleIntelligencePolisher.rewrite(source, directions: directions,
-                        language: snapshot.language, style: snapshot.style.rawValue)
+                        language: snapshot.language, style: style.rawValue)
                 }
                 if provider == .local {
                     if let release = speechReleaseTask { await release.value }
@@ -395,9 +406,9 @@ import WisprMobileInference
                     try await textRuntime.prepare(id: snapshot.localTextModel, localDirectory: localTextDirectory(snapshot),
                         cacheDirectory: MobilePaths.models.appendingPathComponent("Text")) { _ in }
                     return try await textRuntime.rewrite(source, modelID: snapshot.localTextModel,
-                        style: snapshot.style.rawValue, directions: directions)
+                        style: style.rawValue, directions: directions)
                 }
-                return try await server.rewrite(source, directions: directions, style: snapshot.style,
+                return try await server.rewrite(source, directions: directions, style: style,
                     configuration: .init(endpoint: snapshot.serverEndpoint, model: snapshot.serverModel,
                         apiKey: MobileCredentialStore.read(endpoint: snapshot.serverEndpoint)))
             }
@@ -408,7 +419,7 @@ import WisprMobileInference
                 let text = try result.get()
                 try Task.checkCancellation()
                 guard rewritePresented, rewriteProvider == provider, preferences == snapshot,
-                      rewriteDirections == directions else { rewrite.cancel(); return }
+                      rewriteDirections == customDirections, rewriteGoal == goal else { rewrite.cancel(); return }
                 if !rewrite.finish(text, attempt: attempt, currentText: transcript) {
                     rewriteError = "The rewrite could not be used. Your original text is unchanged."
                 }
@@ -769,6 +780,7 @@ import WisprMobileInference
         "textCacheDownloadCompleted": integrationTextCacheDownloadCompleted,
         "textCacheDownloadRetainedSpeech": integrationTextCacheDownloadRetainedSpeech,
         "textModelLoaded": textModelID != nil,
+            "recordingScreenAwakePolicyVerified": recorder.verifyRecordingScreenAwakePolicy(),
         "polishingProvider": preferences.polishMode.rawValue,
             "polishingCompleted": integrationPolishingCompleted, "unpolishedText": integrationUnpolishedText, "canDictate": canDictate,
             "appleIntelligenceAvailable": appleIntelligenceStatus.isAvailable, "appleIntelligenceStatus": appleIntelligenceStatus.message,
@@ -795,7 +807,19 @@ import WisprMobileInference
             rewriteProvider = .local
         }
         if let index = args.firstIndex(of: "--integration-rewrite-directions"), index + 1 < args.count {
+            rewriteGoal = .custom
             rewriteDirections = args[index + 1]
+        }
+        if let index = args.firstIndex(of: "--integration-rewrite-goal"), index + 1 < args.count {
+            switch args[index + 1] {
+            case "main-point-first": rewriteGoal = .mainPointFirst
+            case "clear-story": rewriteGoal = .clearStory
+            case "professional": rewriteGoal = .professional
+            case "custom": rewriteGoal = .custom
+            default: rewriteGoal = .defaultClarity
+            }
+        } else if rewriteDirections.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            rewriteGoal = .defaultClarity
         }
         let requestsBeforeCancel = integrationRewriteRequestCount
         generateRewrite()
@@ -803,9 +827,25 @@ import WisprMobileInference
         if let current = work { await current.value }
         let cancelBeforeStartPreservedOriginal = transcript == source && rewrite.proposal == nil
             && integrationRewriteRequestCount == requestsBeforeCancel
+        let unchangedAttempt = rewrite.begin(source: source)
+        _ = rewrite.finish(source, attempt: unchangedAttempt, currentText: source)
+        let wasUnchanged = rewrite.proposalIsUnchanged
+        let copyBefore = needsCopy
+        acceptRewrite()
+        let unchangedProposalRejected = wasUnchanged && rewrite.proposalIsUnchanged && rewritePresented
+            && transcript == source && needsCopy == copyBefore && history == originalHistory
+            && (try? MobilePaths.exchange?.latest()) == sharedBefore
         generateRewrite()
         if let current = work { await current.value }
+        let firstProposalAvailable = rewrite.proposal != nil
+        let requestsBeforeRetry = integrationRewriteRequestCount
+        generateRewrite()
+        if let current = work { await current.value }
+        let rerunFromPreviewVerified = firstProposalAvailable && integrationRewriteRequestCount == requestsBeforeRetry + 1
+            && transcript == source && history == originalHistory
+            && (try? MobilePaths.exchange?.latest()) == sharedBefore
         let proposal = rewrite.proposal ?? ""
+        let proposalUnchanged = rewrite.proposalIsUnchanged
         let failure = rewriteError ?? ""
         let unchanged = transcript == source
         let historyUnchanged = history == originalHistory && (try? MobilePaths.archive.load()) == originalHistory
@@ -821,7 +861,10 @@ import WisprMobileInference
             && (try? MobilePaths.exchange?.latest())?.text == source
         return ["rewriteRequested": true, "rewriteProvider": rewriteProvider.rawValue,
             "rewriteOriginal": source, "rewriteProposal": proposal, "rewriteError": failure,
-            "rewriteCompleted": !proposal.isEmpty, "rewritePreviewPreservedOriginal": unchanged,
+            "rewriteCompleted": !proposal.isEmpty && !proposalUnchanged,
+            "rewriteGoal": rewriteGoal.rawValue, "rewriteProposalUnchanged": proposalUnchanged,
+            "rewriteUnchangedProposalRejected": unchangedProposalRejected,
+            "rewriteRerunFromPreviewVerified": rerunFromPreviewVerified, "rewritePreviewPreservedOriginal": unchanged,
             "rewritePreviewPreservedHistory": historyUnchanged, "rewritePreviewPreservedShared": sharedUnchanged,
             "rewriteAccepted": accepted, "rewriteUndoRestoredOriginal": restored,
             "rewriteCancelBeforeStartPreservedOriginal": cancelBeforeStartPreservedOriginal,

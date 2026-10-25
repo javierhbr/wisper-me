@@ -26,6 +26,12 @@ public struct IdeaRewriteSession: Equatable, Sendable {
     private var undoOriginal: String?
     private var undoAccepted: String?
 
+    /// Whitespace-only differences do not count as a newly composed message.
+    public var proposalIsUnchanged: Bool {
+        guard let original, let proposal else { return false }
+        return original.split(whereSeparator: \.isWhitespace) == proposal.split(whereSeparator: \.isWhitespace)
+    }
+
     public init() {}
 
     @discardableResult
@@ -70,6 +76,8 @@ public struct IdeaRewriteSession: Equatable, Sendable {
             textChanged()
             return nil
         }
+        // Keep unchanged drafts available for comparison and another attempt.
+        guard !proposalIsUnchanged else { return nil }
         undoOriginal = original
         undoAccepted = proposal
         cancel()

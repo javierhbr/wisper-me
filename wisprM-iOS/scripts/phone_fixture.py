@@ -12,6 +12,9 @@ def validate_transcription(result, *, model, apple=False, local=False,
         if not condition:
             raise SystemExit(message)
 
+    if "recordingScreenAwakePolicyVerified" in result:
+        require(result["recordingScreenAwakePolicyVerified"] is True,
+                "Recording screen-awake override did not restore the previous auto-lock setting.")
     text = result.get("text")
     require(result.get("model") == model and isinstance(text, str) and text.strip(),
             "The requested speech model did not produce a transcript.")
@@ -42,6 +45,9 @@ def validate_transcription(result, *, model, apple=False, local=False,
 
     if rewrite:
         original, proposal = result.get("rewriteOriginal"), result.get("rewriteProposal")
+        if isinstance(original, str) and isinstance(proposal, str):
+            require(" ".join(original.split()) != " ".join(proposal.split()),
+                    "The model returned unchanged text; no successful rewrite should be claimed.")
         require(result.get("rewriteRequested") is True and result.get("rewriteCompleted") is True,
                 "Manual rewrite did not complete; a retained transcript does not establish rewrite success.")
         require(isinstance(original, str) and original.strip()
@@ -49,6 +55,9 @@ def validate_transcription(result, *, model, apple=False, local=False,
                 "Manual rewrite must return a complete nonempty proposal without a rewrite error.")
         for field in ("rewritePreviewPreservedOriginal", "rewritePreviewPreservedHistory", "rewritePreviewPreservedShared"):
             require(result.get(field) is True, "Rewrite preview changed original text or delivery state: " + field)
+        require(result.get("rewriteUnchangedProposalRejected") is True
+                and result.get("rewriteRerunFromPreviewVerified") is True,
+                "Unchanged proposals must remain unpublished and allow another explicit rewrite.")
         require(result.get("rewriteCancelBeforeStartPreservedOriginal") is True,
                 "Cancelling a queued rewrite must preserve the original without starting a provider request.")
         require(result.get("rewriteAccepted") is True and result.get("rewriteUndoRestoredOriginal") is True

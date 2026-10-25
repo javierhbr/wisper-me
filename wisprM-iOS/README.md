@@ -61,7 +61,7 @@ Unsigned device output cannot be installed on a phone until it is signed and pro
 3. In **Dictate**, tap **Start dictation**, grant microphone permission, speak, then tap **Finish dictation**.
 4. Finished text is copied to the system clipboard while wisprM is active. Paste it in your destination app, or use **Copy** and the Share button.
 
-If processing finishes in the background, return to wisprM to trigger the clipboard copy. A background result can also be read by the keyboard when App Group sharing is provisioned. Recording stops automatically at ten minutes. A short chime at 9:30 gives you 30 seconds to finish; tapping Finish or Cancel stops the pending alert. The alert uses the current audio route and media volume. Audio-file imports are limited to 100 MB and ten minutes; format support is supplied by native AVFoundation, not the Mac's FFmpeg runtime.
+If processing finishes in the background, return to wisprM to trigger the clipboard copy. A background result can also be read by the keyboard when App Group sharing is provisioned. Recording stops automatically at ten minutes. A short chime at 9:30 gives you 30 seconds to finish; tapping Finish or Cancel stops the pending alert. The alert uses the current audio route and media volume. While recording, wisprM keeps the screen awake; finishing, cancellation, interruption, automatic completion, or failed startup restores the previous auto-lock setting. Audio-file imports are limited to 100 MB and ten minutes; format support is supplied by native AVFoundation, not the Mac's FFmpeg runtime.
 
 Phone calls and other audio interruptions end recording and process the captured portion where possible. Temporary audio is deleted after completion/cancellation; stale owned recordings are cleaned on launch. Importing audio makes a temporary private copy and never deletes the original.
 
@@ -114,21 +114,32 @@ If polishing is disabled during a pending request, the result is discarded and l
 
 ## Rewrite an idea on request
 
-After dictation, tap **Rewrite idea** to improve the order, flow, and clarity of the message. This is a separate manual action; it works even when automatic grammar polishing is off. Add optional directions such as “Lead with the main point” or “Organize this as a clear story.” The default rewrite preserves material details and asks the model to keep facts, language, names, numbers, uncertainty, and intention.
+After dictation, tap **Rewrite idea**. This is a separate manual action and works even when automatic grammar polishing is off. Choose a goal:
 
-Choose Apple Intelligence, your selected on-device language model, or the model server configured in Settings. The sheet identifies server use before generation. No provider fallback occurs. On-device rewriting requires the app to remain open; model availability and the provider's input limits still apply. Directions are limited to 2,000 UTF-8 bytes. Overlong requests are rejected without silently truncating or summarizing the source.
+- **Default:** reorder ideas, improve transitions, and remove genuine repetition; preserve facts, names, numbers, uncertainty and intention; avoid invented explanations and silent summaries.
+- **Main point first:** lead with the key message, then organize the supporting details and next steps.
+- **Tell a clear story:** organize stated events and context as a coherent story without inventing chronology, causes or dialogue.
+- **Professional message:** use a clear work-appropriate tone without inventing recipients, agreements or commitments.
+- **Custom:** enter your own directions. The same preservation rules apply.
 
-Review **Original** and **Rewrite**, then choose **Use rewrite** or **Keep original**. A proposal does not replace the current text, clipboard, history, or keyboard result. Acceptance delivers the rewrite using the usual device-local clipboard and keyboard-sharing policies; **Undo rewrite** restores the exact original. Editing the text afterwards clears Undo. Cancelling, closing the sheet, or changing the text/settings invalidates pending results.
+Choose Apple Intelligence, your selected on-device language model, or the model server configured in Settings. The sheet identifies server use before generation; no provider fallback occurs. On-device rewriting requires the app to remain open. Existing context limits apply, and Custom directions retain the 2,000 UTF-8 byte limit.
 
-Generated-audio checks support manual rewriting independently of automatic grammar correction:
+Goal/provider controls remain available after generation. **Rewrite again** requests another proposal from the unchanged original. Each press starts one request; there is no automatic retry. Manual rewrites use conservative sampling for variation, while automatic grammar correction retains its previous settings. Variation and factual fidelity are not guaranteed.
+
+Review **Original** and **Rewrite**, then choose **Use rewrite** or **Keep original**. If the proposal has the same text apart from whitespace, the sheet says **No changes proposed** and disables acceptance; choose another goal or Rewrite again. Unaccepted and unchanged proposals do not replace text, clipboard, history, or keyboard publication. Acceptance uses normal delivery/privacy policies. **Undo rewrite** restores the exact original; editing afterwards clears Undo.
+
+Use **Hide keyboard** above the keyboard when editing the transcript, model/settings fields, or Custom directions. Scrolling can also dismiss it, making the bottom menu accessible again.
+
+Generated-audio checks exercise the actual rewrite/preview/rerun/accept/Undo flow:
 
 ```bash
-python3 scripts/integration-transcription.py --model whisper-tiny --rewrite --rewrite-directions "Lead with the main point"
-python3 scripts/integration-phone.py --device <coredevice-id> --model whisper-tiny --rewrite
-python3 scripts/integration-phone.py --device <coredevice-id> --model whisper-tiny --rewrite --rewrite-provider local
+python3 scripts/integration-transcription.py --model whisper-tiny --rewrite
+python3 scripts/integration-transcription.py --model whisper-tiny --rewrite --rewrite-goal clear-story
+python3 scripts/integration-phone.py --device <coredevice-id> --model whisper-tiny --rewrite --rewrite-goal professional
+python3 scripts/integration-phone.py --device <coredevice-id> --model whisper-tiny --rewrite --rewrite-goal custom --rewrite-directions "Lead with the request"
 ```
 
-Fixtures verify cancellation before request creation, preservation before acceptance, acceptance, and exact Undo restoration using isolated data. They do not record the microphone or write the clipboard. The rewriting model can still make mistakes; review its proposed wording before accepting it.
+Fixtures use isolated data and generated audio, never the microphone or clipboard. They also verify the UIKit screen-awake override and restoration without recording. Review proposed wording before accepting it; a model may still alter or omit details.
 
 ## Verification
 

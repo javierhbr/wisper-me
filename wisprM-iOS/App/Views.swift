@@ -28,6 +28,7 @@ struct MobileRootView: View {
 struct DictationView: View {
     @ObservedObject var model: MobileModel
     @State private var importing = false
+    @FocusState private var transcriptFocused: Bool
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -40,6 +41,7 @@ struct DictationView: View {
                         .font(.system(size: 10, weight: .semibold, design: .monospaced)).foregroundStyle(.secondary)
                     TextEditor(text: $model.transcript).frame(minHeight: 180).scrollContentBackground(.hidden)
                         .accessibilityLabel("Dictated text").disabled(model.busy)
+                        .focused($transcriptFocused)
                     HStack {
                         Text("\(model.transcript.split(whereSeparator: \.isWhitespace).count) words").font(.caption).foregroundStyle(.secondary)
                         Spacer()
@@ -48,7 +50,10 @@ struct DictationView: View {
                     }
                     if !model.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
-                            Button(action: model.openRewrite) {
+                            Button {
+                            transcriptFocused = false
+                            model.openRewrite()
+                        } label: {
                                 Label("Rewrite idea", systemImage: "text.alignleft")
                                     .frame(maxWidth: .infinity)
                             }
@@ -74,7 +79,18 @@ struct DictationView: View {
                 Text("Completed text is copied automatically while wisprM is open. Return to the app to copy a result completed in the background, or insert it with the wisprM keyboard.")
                     .font(.footnote).foregroundStyle(.secondary)
             }.padding(24)
-        }.background(MobileTheme.paper).toolbar(.hidden, for: .navigationBar)
+        }.background(MobileTheme.paper)
+        .scrollDismissesKeyboard(.interactively)
+        .toolbar(.hidden, for: .navigationBar)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Hide keyboard", systemImage: "keyboard.chevron.compact.down") {
+                    transcriptFocused = false
+                }
+                .accessibilityHint("Dismiss the keyboard to see the main menu.")
+            }
+        }
         .sheet(isPresented: $model.rewritePresented, onDismiss: model.dismissRewrite) {
             IdeaRewriteView(model: model)
         }
@@ -87,18 +103,95 @@ struct DictationView: View {
 struct IdeaRewriteView: View {
     @ObservedObject var model: MobileModel
     @State private var showingOriginal = false
-
+    @State private var hasRequestedRewrite = false
+    @FocusState private var directionsFocused: Bool
     private var original: String { model.rewrite.original ?? model.transcript }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    Text("Give your idea a clearer order and flow while keeping its meaning. Your original stays unchanged until you choose a rewrite.")
+                    Text("Give your idea a clearer order and flow while keeping its meaning. Your original and clipboard stay unchanged until you accept a rewrite.")
                         .font(.callout)
+                }
+                Section("Rewording goal") {
+                    Picker("Goal", selection: $model.rewriteGoal) {
+                        ForEach(RewriteGoal.allCases) { goal in
+                            Text(goal.rawValue).tag(goal)
+                        }
+                    }
+                    .disabled(model.busy)
+                    Text(model.rewriteGoal.explanation)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Every goal preserves facts, names, numbers, uncertainty, and your intention. No invented explanations or silent summaries.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Section("Rewrite with") {
+                    Picker("Text model", selection: $model.rewriteProvider) {
+                        ForEach(RewriteProvider.allCases) { provider in
+                            Text(provider.rawValue).tag(provider)
+                        }
+                    }
+                    .disabled(model.busy)
+                    Text(providerDescription)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                if model.rewriteGoal == .custom {
+                    Section("Custom directions") {
+                        TextField("What would make this clearer?", text: $model.rewriteDirections, axis: .vertical)
+                            .lineLimit(2...5)
+                            .focused($directionsFocused)
+                            .disabled(model.busy)
+                            .accessibilityLabel("Custom rewrite directions")
+                        Text("For example: Explain this as a clear story. Lead with the request.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Section {
+                    if model.phase == .rewriting && !model.rewrite.isGenerating {
+                        ProgressView("Finishing cancellation…")
+                    } else if model.rewrite.isGenerating {
+                        ProgressView("Reorganizing your idea…")
+                            .accessibilityLabel("Rewriting in progress")
+                        Button("Cancel rewrite", role: .cancel) {
+                            directionsFocused = false
+                            model.cancelRewrite()
+                        }
+                    } else {
+                        Button {
+                            directionsFocused = false
+                            hasRequestedRewrite = true
+                            model.generateRewrite()
+                        } label: {
+                            Text(hasRequestedRewrite || model.rewrite.proposal != nil ? "Rewrite again" : "Rewrite idea")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.busy)
+                    }
+                } footer: {
+                    Text("Each rewrite runs only when you request it. Nothing replaces your original, clipboard, or shared keyboard result until you accept.")
+                }
+                if let error = model.rewriteError {
+                    Section {
+                        Label(error, systemImage: "exclamationmark.circle")
+                            .font(.callout)
+                            .foregroundStyle(.red)
+                    }
                 }
                 if let proposal = model.rewrite.proposal {
                     Section("Review your rewrite") {
+                        if model.rewrite.proposalIsUnchanged {
+                            Label("No changes were proposed. Try another goal or Rewrite again.", systemImage: "equal.circle")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
                         Picker("Version", selection: $showingOriginal) {
                             Text("Original").tag(true)
                             Text("Rewrite").tag(false)
@@ -111,59 +204,22 @@ struct IdeaRewriteView: View {
                             .accessibilityValue(showingOriginal ? original : proposal)
                     }
                     Section {
-                        Button(action: model.acceptRewrite) {
+                        Button {
+                            directionsFocused = false
+                            model.acceptRewrite()
+                        } label: {
                             Text("Use rewrite").frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
-                        Button("Keep original", action: model.keepOriginalRewrite)
+                        .disabled(model.busy || model.rewrite.proposalIsUnchanged)
+                        Button("Keep original") {
+                            directionsFocused = false
+                            model.keepOriginalRewrite()
+                        }
                     } footer: {
                         Text("Using the rewrite updates your text, clipboard, and shared keyboard result. You can undo it from Dictate.")
                     }
                 } else {
-                    Section("Rewrite with") {
-                        Picker("Text model", selection: $model.rewriteProvider) {
-                            ForEach(RewriteProvider.allCases) { provider in
-                                Text(provider.rawValue).tag(provider)
-                            }
-                        }
-                        .disabled(model.rewrite.isGenerating)
-                        Text(providerDescription)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                    Section("Optional directions") {
-                        TextField("What would make this clearer?", text: $model.rewriteDirections, axis: .vertical)
-                            .lineLimit(2...5)
-                            .disabled(model.rewrite.isGenerating)
-                            .accessibilityLabel("Optional rewrite directions")
-                        Text("For example: Lead with the main point. Make this a clear story.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                    Section {
-                        if model.phase == .rewriting && !model.rewrite.isGenerating {
-                            ProgressView("Finishing cancellation…")
-                        } else if model.rewrite.isGenerating {
-                            ProgressView("Reorganizing your idea…")
-                                .accessibilityLabel("Rewriting in progress")
-                            Button("Cancel rewrite", role: .cancel, action: model.cancelRewrite)
-                        } else {
-                            Button(action: model.generateRewrite) {
-                                Text(model.rewriteError == nil ? "Rewrite idea" : "Try again")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(model.busy)
-                        }
-                        if let error = model.rewriteError {
-                            Label(error, systemImage: "exclamationmark.circle")
-                                .font(.callout)
-                                .foregroundStyle(.red)
-                                .accessibilityLabel("Rewrite unavailable: " + error)
-                        }
-                    } footer: {
-                        Text("A rewrite is created only when you request it. Nothing is copied or shared until you accept it.")
-                    }
                     Section {
                         DisclosureGroup("Original text") {
                             Text(original)
@@ -173,15 +229,31 @@ struct IdeaRewriteView: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Rewrite idea")
             .navigationBarTitleDisplayMode(.inline)
             .tint(MobileTheme.green)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close", action: model.dismissRewrite)
+                    Button("Close") {
+                        directionsFocused = false
+                        model.dismissRewrite()
+                    }
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Hide keyboard", systemImage: "keyboard.chevron.compact.down") {
+                        directionsFocused = false
+                    }
                 }
             }
-            .onChange(of: model.rewrite.proposal) { _, _ in showingOriginal = false }
+            .onChange(of: model.rewrite.proposal) { _, proposal in
+                showingOriginal = false
+                if proposal != nil { hasRequestedRewrite = true }
+            }
+            .onChange(of: model.rewriteGoal) { _, _ in
+                directionsFocused = false
+            }
         }
     }
 
@@ -192,7 +264,7 @@ struct IdeaRewriteView: View {
         case .local:
             return "Uses your selected on-device language model. Keep wisprM open while rewriting."
         case .server:
-            return "Sends this text and your directions to the model server configured in Settings when you tap Rewrite idea."
+            return "Sends the text and goal directions to the model server configured in Settings when you request a rewrite."
         }
     }
 }
@@ -271,6 +343,8 @@ struct LiveMicrophoneView: View {
 
 struct MobileModelsView: View {
     @ObservedObject var model: MobileModel
+    private enum Field: Hashable { case repository, variant, textModel }
+    @FocusState private var focusedField: Field?
     @State private var deleting: SpeechChoice?
     @State private var deletingAll = false
     @State private var importingFolder = false
@@ -307,7 +381,9 @@ struct MobileModelsView: View {
             }
             Section("Compatible custom speech models") {
                 TextField("WhisperKit owner/repository", text: $customRepository).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .focused($focusedField, equals: .repository)
                 TextField("Variant folder name", text: $customVariant).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .focused($focusedField, equals: .variant)
                 Button("Use custom Whisper repository") { model.addWhisperRepository(customRepository, variant: customVariant) }
                 Button("Import speech model folder from Files") { importingText = false; importingFolder = true }
                 Text("For folder imports, select Whisper or Parakeet first. Use a complete WhisperKit Core ML folder or Parakeet v3 compiled components and vocabulary. Mac MLX speech weights are not compatible.").font(.footnote).foregroundStyle(.secondary)
@@ -343,6 +419,7 @@ struct MobileModelsView: View {
                     #endif
                     if model.preferences.localTextFolder == nil {
                         TextField("MLX model ID", text: $model.preferences.localTextModel).textInputAutocapitalization(.never).autocorrectionDisabled().disabled(model.busy)
+                        .focused($focusedField, equals: .textModel)
                     } else {
                         Text(model.preferences.localTextModel).font(.caption)
                         Button("Use a model ID instead") { model.preferences.localTextFolder = nil; model.preferences.localTextModel = "mlx-community/Qwen2.5-0.5B-Instruct-4bit" }.disabled(model.busy)
@@ -355,7 +432,15 @@ struct MobileModelsView: View {
                 }
             }
         }.scrollContentBackground(.hidden).background(MobileTheme.paper).navigationTitle("Models")
+        .scrollDismissesKeyboard(.interactively)
             .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Hide keyboard", systemImage: "keyboard.chevron.compact.down") {
+                    focusedField = nil
+                }
+                .accessibilityHint("Dismiss the keyboard to see the main menu.")
+            }
                 ToolbarItem(placement: .primaryAction) {
                     Button(model.ready ? "Reload" : "Load", action: model.loadSpeech).disabled(model.busy)
                         .accessibilityLabel("Load selected speech model")
@@ -401,6 +486,8 @@ struct MobileHistoryView: View {
 
 struct MobileSettingsView: View {
     @ObservedObject var model: MobileModel
+    private enum Field: Hashable { case endpoint, model, key }
+    @FocusState private var focusedField: Field?
     @State private var key = ""
     @State private var keyMessage = ""
     var body: some View {
@@ -429,8 +516,11 @@ struct MobileSettingsView: View {
             }
             Section("Optional model server") {
                 TextField("https://server.example/v1/chat/completions", text: $model.preferences.serverEndpoint).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .focused($focusedField, equals: .endpoint)
                 TextField("Model name", text: $model.preferences.serverModel).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .focused($focusedField, equals: .model)
                 SecureField("Server API key", text: $key)
+                    .focused($focusedField, equals: .key)
                 Button("Save key in Keychain") {
                     do { try MobileCredentialStore.save(key, endpoint: model.preferences.serverEndpoint); key = ""; keyMessage = "Credential saved for this server." }
                     catch { model.error = error.localizedDescription }
@@ -440,5 +530,15 @@ struct MobileSettingsView: View {
             }.disabled(model.busy)
             Section { Text("wisprM · iPhone edition\nOriginal code and branding. No account required.").font(.footnote).foregroundStyle(.secondary) }
         }.navigationTitle("Settings").scrollContentBackground(.hidden).background(MobileTheme.paper)
+        .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Hide keyboard", systemImage: "keyboard.chevron.compact.down") {
+                    focusedField = nil
+                }
+                .accessibilityHint("Dismiss the keyboard to see the main menu.")
+            }
+        }
     }
 }

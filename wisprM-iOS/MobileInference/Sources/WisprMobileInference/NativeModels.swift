@@ -211,13 +211,13 @@ public actor TextRuntime {
     }
     public func rewrite(_ text: String, modelID: String, style: String, directions: String) async throws -> String {
         let input = try IdeaRewritePrompt.input(text: text, directions: directions, maximumBytes: 32_000)
-        return try await generate(text, modelID: modelID, input: input, instructions: IdeaRewritePrompt.instructions(style: style))
+        return try await generate(text, modelID: modelID, input: input, instructions: IdeaRewritePrompt.instructions(style: style), temperature: 0.3)
     }
-    private func generate(_ text: String, modelID: String, input: String, instructions: String) async throws -> String {
+    private func generate(_ text: String, modelID: String, input: String, instructions: String, temperature: Float = 0.1) async throws -> String {
         try Task.checkCancellation()
         guard loadedID == modelID, let container else { throw MobileFailure.message("Download and load the text model in Models first.") }
         let session = ChatSession(container, instructions: instructions,
-            generateParameters: GenerateParameters(maxTokens: 2048, temperature: 0.1))
+            generateParameters: GenerateParameters(maxTokens: 2048, temperature: temperature))
         var output = "", completed = false
         for try await generation in session.streamDetails(to: input, images: [], videos: []) {
             try Task.checkCancellation()

@@ -111,13 +111,19 @@ class PhoneFixtureTests(unittest.TestCase):
                     rewritePreviewPreservedHistory=True, rewritePreviewPreservedShared=True,
                     rewriteCancelBeforeStartPreservedOriginal=True,
                     rewriteAccepted=True, rewriteUndoRestoredOriginal=True,
+                    rewriteUnchangedProposalRejected=True, rewriteRerunFromPreviewVerified=True,
                     rewriteAutomaticPolishingMode="Local cleanup only")
+
+    def test_recording_screen_awake_policy_must_restore_previous_value(self):
+        validate_transcription(dict(self.result(), recordingScreenAwakePolicyVerified=True), model="whisper-tiny")
+        with self.assertRaises(SystemExit):
+            validate_transcription(dict(self.result(), recordingScreenAwakePolicyVerified=False), model="whisper-tiny")
 
     def test_rewrite_requires_a_real_successful_proposal_and_undo(self):
         validate_transcription(self.rewrite_result(), model="whisper-tiny", rewrite=True)
         for key, value in [("rewriteRequested", False), ("rewriteCompleted", False),
-                           ("rewriteProposal", ""), ("rewriteOriginal", ""),
-                           ("rewriteError", "Model unavailable"), ("rewriteAccepted", False),
+                           ("rewriteProposal", ""), ("rewriteProposal", "Original cleanup."), ("rewriteOriginal", ""),
+                           ("rewriteError", "Model unavailable"), ("rewriteAccepted", False), ("rewriteUnchangedProposalRejected", False), ("rewriteRerunFromPreviewVerified", False),
                            ("rewriteCancelBeforeStartPreservedOriginal", False),
                            ("rewriteUndoRestoredOriginal", False), ("text", "Accepted rewrite")]:
             with self.subTest(field=key), self.assertRaises(SystemExit):

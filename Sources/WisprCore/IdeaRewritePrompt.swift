@@ -17,8 +17,11 @@ public enum IdeaRewriteError: LocalizedError, Equatable {
 public enum IdeaRewritePrompt {
     public static func instructions(style: String) -> String {
         """
-        Rewrite the underlying idea so it is clear, coherent, and easy to follow.
-        Reorganize the explanation or story, improve transitions, and remove repetition and hesitations.
+        Rewrite the underlying idea as a new composition that is clear, coherent, and easy to follow.
+        Do more than proofread or copy the transcript: actively reorder related ideas,
+        improve transitions, and use clearer sentence construction. Reorganize the explanation
+        or story and remove genuine repetition and hesitations. A fresh version may retain
+        exact names, numbers, quoted words, and factual phrases without retaining every sentence.
         Preserve the speaker's intention, original language, material facts, names, numbers, pronouns,
         negations, uncertainty, conditions, and level of confidence. Never invent facts, reasons, or conclusions.
         Keep every distinct factual claim and requested action, including secondary

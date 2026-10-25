@@ -65,17 +65,17 @@ public final class Polisher: @unchecked Sendable {
     public func rewrite(_ text: String, directions: String, style: WritingStyle, configuration: PolishConfiguration) async throws -> String {
         let input = try IdeaRewritePrompt.input(text: text, directions: directions, maximumBytes: 64 * 1024)
         return try await generate(text, input: input, instruction: IdeaRewritePrompt.instructions(style: style.rawValue),
-            configuration: configuration)
+            configuration: configuration, temperature: 0.3)
     }
 
-    private func generate(_ original: String, input: String, instruction: String, configuration: PolishConfiguration) async throws -> String {
+    private func generate(_ original: String, input: String, instruction: String, configuration: PolishConfiguration, temperature: Double = 0.1) async throws -> String {
         try Task.checkCancellation()
         guard !configuration.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw PolishError.missingModel }
         var request = try request(configuration: configuration)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "model": configuration.model, "stream": false, "temperature": 0.1, "max_tokens": 4096,
+            "model": configuration.model, "stream": false, "temperature": temperature, "max_tokens": 4096,
             "messages": [["role": "system", "content": instruction], ["role": "user", "content": input]]
         ])
         let data = try await http.data(for: request)

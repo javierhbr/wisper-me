@@ -155,6 +155,25 @@ Observed model-quality limits remain: an early output changed a suggestion into 
 
 Reports/logs are ignored under .build, including integration-whisper-tiny-rewrite-apple.json, phone-whisper-tiny-rewrite-apple.json, rewrite-tests.log and rewrite-phone-*.log. Fixtures use isolated preferences/history/shared locations and generated audio. No credentials, device identifiers or model weights are committed.
 
+## Recording screen awake, keyboard controls and rewrite goals (2026-10-25)
+
+The recorder now acquires an idle-timer override only after recording successfully starts and restores the exact prior value on finish, cancel, interruption, native completion and failed startup. It does not alter the system's global Auto-Lock preference. A DEBUG check exercises the actual UIKit property for both prior Boolean values and repeated acquisition/release without accessing the microphone; generated fixtures report recordingScreenAwakePolicyVerified.
+
+The final five goals are Default, Main point first, Tell a clear story, Professional message and Custom. Professional applies professional style only to that manual request. Custom retains its full existing directions budget. Goal/provider controls remain available with proposals and Rewrite again starts a fresh generation from the current unchanged original. Default instructions explicitly request recomposition beyond copy editing. Only manual rewrites use conservative variation (Apple unseeded random top-20/temperature 0.3, MLX/server 0.3); automatic grammar settings remain unchanged.
+
+Whitespace-only/no-change proposals are labelled, cannot be accepted or create Undo, and can be retried. Existing previews remain isolated from transcript/history/clipboard/keyboard publication until explicit acceptance. Integration checks seed an unchanged proposal to verify non-publication, then exercise real generation and another explicit request from the preview before accept/Undo.
+
+Validation:
+
+- 58 root Swift, 45 mobile Swift and 15 Python tests passed (118 total). New cases include goal contracts, unchanged acceptance refusal/Undo retention, provider sampling separation, report rejection of false wake-state restoration and missing no-op/rerun guarantees. Tests were observed failing before the corresponding implementation changes.
+- Simulator Debug, signed iPhone Debug and unsigned iPhone Release builds passed.
+- Real Simulator Default, Tell a clear story and Professional message fixtures passed with actual rewritten output, wake-state restoration, no-op rejection, explicit rerun, preview isolation and accept/Undo. Reports are in .build/rewrite-v2-default.log, rewrite-v2-story.log and rewrite-v2-professional.log.
+- Computer-use inspection confirmed all five picker entries and Rewrite again alongside goal/provider controls after a proposal. The real software keyboard was opened for Custom directions and the main transcript, then dismissed with the keyboard-down toolbar control. The main bottom menu returned. Models/Settings focus bindings/toolbars compile and were source-reviewed; their keyboard interaction was not separately completed.
+- The signed update installed on the authorized iPhone. The final physical Professional-message fixture was blocked by iOS Locked before launch; no new physical model-inference or long microphone recording claim is made for this revision. Existing generated fixtures use no microphone or clipboard.
+- Independent provider/resource, state/model and UI reviews approved the changes. No semantic equivalence guarantee, measured battery improvement, or automatic retry is claimed.
+
+The model may still return unchanged or imperfect wording. In one Professional fixture, a working microphone was described as having completed testing; state/transport tests do not establish semantic equivalence. The app now reports no-change honestly and keeps review/retry/rejection available. Users should inspect the proposal before acceptance.
+
 ## Reproduce
 
 ```sh

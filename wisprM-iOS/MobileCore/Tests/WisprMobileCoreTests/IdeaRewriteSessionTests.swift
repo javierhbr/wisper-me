@@ -120,6 +120,47 @@ final class IdeaRewriteSessionTests: XCTestCase {
         }
     }
 
+    func testUnchangedProposalIsVisibleButCannotBeAccepted() {
+        let source = "  I might attend.\nNames and dates: Ana, May 3.  "
+        var session = IdeaRewriteSession()
+        let attempt = session.begin(source: source)
+        XCTAssertFalse(session.proposalIsUnchanged)
+        XCTAssertTrue(session.finish("I might attend.  Names and dates: Ana, May 3.", attempt: attempt, currentText: source))
+        XCTAssertTrue(session.proposalIsUnchanged)
+        XCTAssertNil(session.accept(currentText: source))
+        XCTAssertNotNil(session.proposal)
+        XCTAssertEqual(session.original, source)
+        XCTAssertFalse(session.canUndo(currentText: source))
+    }
+
+    func testRetryAfterUnchangedProposalCanAcceptDifferentComposition() {
+        let source = "The details came first. I might attend."
+        var session = IdeaRewriteSession()
+        let first = session.begin(source: source)
+        XCTAssertTrue(session.finish(source, attempt: first, currentText: source))
+        XCTAssertTrue(session.proposalIsUnchanged)
+        XCTAssertNil(session.accept(currentText: source))
+        let retry = session.begin(source: source)
+        XCTAssertNotEqual(first, retry)
+        XCTAssertFalse(session.proposalIsUnchanged)
+        XCTAssertFalse(session.finish("Late first result", attempt: first, currentText: source))
+        let rewritten = "I might attend. Here are the details."
+        XCTAssertTrue(session.finish(rewritten, attempt: retry, currentText: source))
+        XCTAssertFalse(session.proposalIsUnchanged)
+        XCTAssertEqual(session.accept(currentText: source), rewritten)
+        XCTAssertEqual(session.undo(currentText: rewritten), source)
+    }
+
+    func testUnchangedRetryDoesNotReplaceUndoForTheLastAcceptedRewrite() {
+        var session = acceptedSession()
+        let attempt = session.begin(source: "Rewritten")
+        XCTAssertTrue(session.finish("  Rewritten  ", attempt: attempt, currentText: "Rewritten"))
+        XCTAssertTrue(session.proposalIsUnchanged)
+        XCTAssertNil(session.accept(currentText: "Rewritten"))
+        XCTAssertTrue(session.canUndo(currentText: "Rewritten"))
+        XCTAssertEqual(session.undo(currentText: "Rewritten"), "Original")
+    }
+
     private func acceptedSession() -> IdeaRewriteSession {
         var session = IdeaRewriteSession()
         let attempt = session.begin(source: "Original")
